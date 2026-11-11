@@ -12,14 +12,14 @@ pub enum Error {
     TypeConversion {
         from: &'static str,
         to: &'static str,
-        value: Box<dyn Debug>
+        value: Box<dyn Debug + Send + Sync>
     },
     NoClutForIndexedImage,
     InvalidImageParams
 }
 
 impl Error {
-    pub(crate) fn type_conversion<From, To>(value: impl Debug + 'static) -> Self
+    pub(crate) fn type_conversion<From, To>(value: impl Debug + Send + Sync + 'static) -> Self
     where
         From: ?Sized,
         To: ?Sized

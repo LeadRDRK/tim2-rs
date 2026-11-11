@@ -1,10 +1,11 @@
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, little_endian::*};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, little_endian::*};
 
 use crate::Info;
 
 pub const TIM2_MAGIC: [u8; 4] = *b"TIM2";
 
-#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Debug, Clone, Copy)]
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy)]
+#[repr(C, packed)]
 pub struct Header {
     pub magic: [u8; 4],
     pub version: u8,
@@ -22,7 +23,8 @@ impl Header {
     }
 }
 
-#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Debug, Clone, Copy)]
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy)]
+#[repr(C, packed)]
 pub struct PictureHeader {
     pub total_size: U32,
     pub clut_size: U32,
@@ -41,7 +43,8 @@ pub struct PictureHeader {
     pub gs_texclut: U32
 }
 
-#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Debug, Clone, Copy)]
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy)]
+#[repr(C, packed)]
 pub struct MipmapHeader {
     pub gs_miptbp1: U64,
     pub gs_miptbp2: U64

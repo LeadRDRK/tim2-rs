@@ -2,13 +2,14 @@ use std::io::{Read, Seek, SeekFrom};
 
 use zerocopy::transmute;
 
-use crate::{Error, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
+use crate::{ClutType, Error, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
 
 pub struct Decoder<R> {
     reader: R,
     header: Header,
     alignment: u8,
-    next_picture_offset: u64
+    pictures_read: u16,
+    next_picture_offset: u64,
 }
 
 impl<R: Read + Seek> Decoder<R> {
@@ -31,6 +32,7 @@ impl<R: Read + Seek> Decoder<R> {
             reader,
             header,
             alignment,
+            pictures_read: 0,
             next_picture_offset: alignment as _
         })
     }
@@ -43,11 +45,22 @@ impl<R: Read + Seek> Decoder<R> {
         &self.header
     }
 
-    pub fn next_picture(&mut self) -> Result<PictureDecoder<&mut R>, Error> {
+    pub fn picture_count(&self) -> u16 {
+        self.header.picture_count.get()
+    }
+
+    pub fn next_picture(&mut self) -> Result<Option<PictureDecoder<&mut R>>, Error> {
+        if self.pictures_read == self.picture_count() {
+            return Ok(None);
+        }
+
         self.reader.seek(SeekFrom::Start(self.next_picture_offset))?;
         let picture = PictureDecoder::from_reader(self.reader.by_ref(), self.alignment as _)?;
+
         self.next_picture_offset += picture.header.total_size.get() as u64;
-        Ok(picture)
+        self.pictures_read += 1;
+
+        Ok(Some(picture))
     }
 }
 
@@ -141,14 +154,19 @@ impl<R: Read + Seek> PictureDecoder<R> {
         self.reader.read_exact(&mut clut_data)?;
 
         let info: PictureInfo = self.header.try_into()?;
-        let clut_bytes_per_element = info.clut_type.bytes_per_element()
-            .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
-        let single_clut_size = self.header.clut_color_count.get() as usize * clut_bytes_per_element;
+        let cluts = if info.clut_type == ClutType::NONE {
+            Vec::new()
+        }
+        else {
+            let clut_bytes_per_element = info.clut_type.bytes_per_element()
+                .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
+            let single_clut_size = self.header.clut_color_count.get() as usize * clut_bytes_per_element;
 
-        let cluts = clut_data
-            .chunks_exact(single_clut_size)
-            .map(|s| s.to_vec())
-            .collect::<Vec<_>>();
+            clut_data
+                .chunks_exact(single_clut_size)
+                .map(|s| s.to_vec())
+                .collect::<Vec<_>>()
+        };
 
         Picture::from_data(info, image_data, cluts)
     }
