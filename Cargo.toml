@@ -14,3 +14,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 [features]
 default = []
 serde = ["dep:serde", "bitflags/serde"]
+
+[workspace]
+resolver = "3"
+members = ["tim2view"]
