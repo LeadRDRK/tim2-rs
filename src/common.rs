@@ -514,7 +514,7 @@ impl Color {
                     ((value as i16) >> 15) as u8,
                 ]
             },
-            Color::Rgb24(b) => [b[0], b[1], b[2], 255],
+            Color::Rgb24(b) => [b[0], b[1], b[2], 0x80],
             Color::Rgb32(b) => b
         }
     }
