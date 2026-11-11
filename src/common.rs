@@ -188,19 +188,16 @@ impl Picture {
     ) -> Result<Self, Error> {
         let image_pixels = info.image_width as usize * info.image_height as usize;
         let image_data_len = info.image_type.bytes_per_n_pixels(image_pixels);
-        if image_data.len() != image_data_len {
-            return Err(Error::InvalidData("unexpected image data length"));
+        if image_data.len() < image_data_len { // trailing data is valid
+            return Err(Error::InvalidData("insufficient image data length"));
         }
 
         if info.clut_type != ClutType::NONE {
             let clut_bytes_per_element = info.clut_type.bytes_per_element()
-                .ok_or_else(|| Error::InvalidData("unexpected CLUT color type"))?;
+                .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
 
-            if let Some(first_clut) = cluts.first() {
-                let len = first_clut.len();
-                if len % clut_bytes_per_element != 0 || cluts[1..].iter().any(|clut| clut.len() != len) {
-                    return Err(Error::InvalidData("unexpected CLUT data length"));
-                }
+            if cluts.iter().any(|clut| clut.len() % clut_bytes_per_element != 0) {
+                return Err(Error::InvalidData("unexpected CLUT data length"));
             }
         }
 

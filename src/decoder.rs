@@ -153,6 +153,7 @@ impl<R: Read + Seek> PictureDecoder<R> {
         let mut clut_data = vec![0u8; self.header.clut_size.get() as _];
         self.reader.read_exact(&mut clut_data)?;
 
+        let clut_color_count = self.header.clut_color_count.get();
         let info: PictureInfo = self.header.try_into()?;
         let cluts = if info.clut_type == ClutType::NONE {
             Vec::new()
@@ -160,10 +161,10 @@ impl<R: Read + Seek> PictureDecoder<R> {
         else {
             let clut_bytes_per_element = info.clut_type.bytes_per_element()
                 .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
-            let single_clut_size = self.header.clut_color_count.get() as usize * clut_bytes_per_element;
+            let single_clut_size = clut_color_count as usize * clut_bytes_per_element;
 
             clut_data
-                .chunks_exact(single_clut_size)
+                .chunks_exact(single_clut_size) // ignores trailing data
                 .map(|s| s.to_vec())
                 .collect::<Vec<_>>()
         };
