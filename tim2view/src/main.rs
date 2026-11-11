@@ -30,11 +30,8 @@ impl Image {
     }
 }
 
-fn alpha_blend(dest: u8, src: u8, alpha: u8) -> u8 {
-    let dest = dest as f32;
-    let src = src as f32;
-    let alpha = alpha as f32 / 255.0;
-    (src * alpha + dest * (1.0 - alpha)) as u8
+fn alpha_blend(dest: u8, src: u8, alpha: u8) -> u32 {
+    ((((src as i32 - dest as i32) * alpha as i32) >> 7) + dest as i32).clamp(0, 255) as u32
 }
 
 fn run(path: &Path, no_transparency_grid: bool) -> anyhow::Result<()> {
@@ -70,9 +67,9 @@ fn run(path: &Path, no_transparency_grid: bool) -> anyhow::Result<()> {
                     }
                 };
 
-                let r = alpha_blend(bg_color, r, a) as u32;
-                let g = alpha_blend(bg_color, g, a) as u32;
-                let b = alpha_blend(bg_color, b, a) as u32;
+                let r = alpha_blend(bg_color, r, a);
+                let g = alpha_blend(bg_color, g, a);
+                let b = alpha_blend(bg_color, b, a);
                 xrgb.push((r << 16) | (g << 8) | b);
             }
         }
