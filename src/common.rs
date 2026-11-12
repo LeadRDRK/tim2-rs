@@ -370,15 +370,15 @@ impl<'a> PixelReader<'a> {
             },
 
             PixelReader::Indexed { four_bits, clut } => {
-                let color_index = if *four_bits {
+                if *four_bits {
                     let b = image_data.get(index / 2)?;
-                    if index % 2 == 0 { b & 0xF } else { b >> 4 }
+                    let color_index = if index % 2 == 0 { b & 0xF } else { b >> 4 };
+                    clut.get_exact(color_index as _)
                 }
                 else {
-                    *image_data.get(index)?
-                };
-
-                clut.get(color_index as _)
+                    let color_index = *image_data.get(index)?;
+                    clut.get(color_index as _)
+                }
             }
         }
     }
@@ -421,7 +421,10 @@ impl<'a> Clut<'a> {
     }
 
     pub fn get(&self, i: usize) -> Option<Color> {
-        let i = if self.is_linear() { i } else { Self::swizzle_index(i) };
+        self.get_exact(if self.is_linear() { i } else { Self::swizzle_index(i) })
+    }
+
+    pub fn get_exact(&self, i: usize) -> Option<Color> {
         Color::from_pixel(&self.data, i, self.clut_type.try_into().ok()?)
     }
 }
