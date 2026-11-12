@@ -1,6 +1,6 @@
 #![windows_subsystem = "windows"]
 
-use std::{fs::File, io::IsTerminal, path::{Path, PathBuf}};
+use std::{fs::File, io::{BufReader, IsTerminal}, path::{Path, PathBuf}};
 
 use minifb::{Key, KeyRepeat, Scale, ScaleMode, Window, WindowOptions};
 use rfd::{MessageButtons, MessageLevel};
@@ -38,47 +38,52 @@ fn alpha_blend(dest: u8, src: u8, alpha: u8) -> u32 {
 }
 
 fn run(path: &Path, no_transparency_grid: bool) -> anyhow::Result<()> {
-    let file = File::open(path)?;
-    let mut decoder = Decoder::from_reader(file)?;
-    let mut pictures: Vec<Image> = Vec::with_capacity(decoder.picture_count() as _);
-    while let Some(picture_decoder) = decoder.next_picture()? {
-        let picture = picture_decoder.decode()?;
-        let info = picture.info();
-        let width = info.image_width;
-        let height = info.image_height;
-        let image_type = info.image_type;
+    let pictures: Vec<Image> = {
+        let file = File::open(path)?;
+        let mut decoder = Decoder::from_reader(BufReader::new(file))?;
+        let mut pictures = Vec::with_capacity(decoder.picture_count() as _);
 
-        let image_reader = picture.image_reader(None)?;
-        let rgba_u8 = image_reader.read_to_rgba()?;
+        while let Some(picture_decoder) = decoder.next_picture()? {
+            let picture = picture_decoder.decode()?;
+            let info = picture.info();
+            let width = info.image_width;
+            let height = info.image_height;
+            let image_type = info.image_type;
 
-        let mut xrgb: Vec<u32> = Vec::with_capacity(image_reader.pixel_count());
-        for y in 0..height {
-            for x in 0..width {
-                let index = y as usize * width as usize + x as usize;
-                let offset = index * 4;
-                let [r, g, b, a] = rgba_u8[offset..offset + 4].try_into().unwrap();
+            let image_reader = picture.image_reader(None)?;
+            let rgba_u8 = image_reader.read_to_rgba()?;
 
-                let bg_color: u8 = if no_transparency_grid {
-                    0
-                }
-                else {
-                    if (x / 8 + y / 8) % 2 == 0 {
-                        0x66
+            let mut xrgb: Vec<u32> = Vec::with_capacity(image_reader.pixel_count());
+            for y in 0..height {
+                for x in 0..width {
+                    let index = y as usize * width as usize + x as usize;
+                    let offset = index * 4;
+                    let [r, g, b, a] = rgba_u8[offset..offset + 4].try_into().unwrap();
+
+                    let bg_color: u8 = if no_transparency_grid {
+                        0
                     }
                     else {
-                        0x99
-                    }
-                };
+                        if (x / 8 + y / 8) % 2 == 0 {
+                            0x66
+                        }
+                        else {
+                            0x99
+                        }
+                    };
 
-                let r = alpha_blend(bg_color, r, a);
-                let g = alpha_blend(bg_color, g, a);
-                let b = alpha_blend(bg_color, b, a);
-                xrgb.push((r << 16) | (g << 8) | b);
+                    let r = alpha_blend(bg_color, r, a);
+                    let g = alpha_blend(bg_color, g, a);
+                    let b = alpha_blend(bg_color, b, a);
+                    xrgb.push((r << 16) | (g << 8) | b);
+                }
             }
+
+            pictures.push(Image { xrgb, width, height, image_type });
         }
 
-        pictures.push(Image { xrgb, width, height, image_type });
-    }
+        pictures
+    };
 
     let mut picture_index = 0;
     let mut scale_index = 0;
