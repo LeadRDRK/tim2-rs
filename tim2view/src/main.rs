@@ -1,6 +1,6 @@
 use std::{fs::File, path::{Path, PathBuf}};
 
-use minifb::{Key, KeyRepeat, Scale, Window, WindowOptions};
+use minifb::{Key, KeyRepeat, Scale, ScaleMode, Window, WindowOptions};
 use tim2::*;
 
 const SCALES: [Scale; 4] = [
@@ -19,7 +19,7 @@ struct Image {
 
 impl Image {
     fn window_title(&self, path: &Path, picture_index: usize, picture_count: usize) -> String {
-        format!("tim2view — {} ({} of {}) [{}x{}, {:?}]",
+        format!("{} ({} of {}) [{}x{}, {:?}] - tim2view",
             path.file_name().unwrap().display(),
             picture_index + 1, 
             picture_count,
@@ -92,6 +92,8 @@ fn run(path: &Path, no_transparency_grid: bool) -> anyhow::Result<()> {
                 picture.height as _,
                 WindowOptions {
                     scale: SCALES[scale_index],
+                    scale_mode: ScaleMode::AspectRatioStretch,
+                    resize: true,
                     ..Default::default()
                 }
             )?;
