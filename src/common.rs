@@ -508,7 +508,7 @@ impl Color {
                     conv_5_to_8(value & 0x1F),
                     conv_5_to_8(value >> 5 & 0x1F),
                     conv_5_to_8(value >> 10 & 0x1F),
-                    ((value as i16) >> 15) as u8,
+                    (value >> 8 & 0x80) as u8
                 ]
             },
             Color::Rgb24(b) => [b[0], b[1], b[2], 0x80],
