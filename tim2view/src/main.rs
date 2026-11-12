@@ -95,8 +95,8 @@ fn run(path: &Path, no_transparency_grid: bool) -> anyhow::Result<()> {
 
         let mut window = Window::new(
             &picture.window_title(path, picture_index, pictures.len()),
-            picture.width as _,
-            picture.height as _,
+            picture.width.max(200) as _,
+            picture.height.max(200) as _,
             WindowOptions {
                 scale_mode: ScaleMode::AspectRatioStretch,
                 resize: true,
