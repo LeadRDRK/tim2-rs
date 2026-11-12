@@ -1,6 +1,9 @@
-use std::{fs::File, path::{Path, PathBuf}};
+#![windows_subsystem = "windows"]
+
+use std::{fs::File, io::IsTerminal, path::{Path, PathBuf}};
 
 use minifb::{Key, KeyRepeat, Scale, ScaleMode, Window, WindowOptions};
+use rfd::{MessageButtons, MessageLevel};
 use tim2::*;
 
 const SCALES: [Scale; 4] = [
@@ -160,6 +163,15 @@ fn run(path: &Path, no_transparency_grid: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn show_dialog(message: impl Into<String>, level: MessageLevel) {
+    rfd::MessageDialog::new()
+        .set_title("tim2view")
+        .set_description(message)
+        .set_level(level)
+        .set_buttons(MessageButtons::Ok)
+        .show();
+}
+
 fn print_help() {
     println!("Usage: tim2view [OPTIONS] <TIM2_FILE>
 
@@ -167,6 +179,10 @@ Options:
     -h, --help                  Print help
     -b, --no-transparency-grid  Disable the checkerboard background for transparent images");
 }
+
+const USAGE_DIALOG_MESSAGE: &str =
+"Usage: tim2view [OPTIONS] <TIM2_FILE>
+Or drag and drop a file onto the executable.";
 
 fn main() {
     let mut path_opt: Option<PathBuf> = None;
@@ -192,12 +208,17 @@ fn main() {
     }
 
     let Some(path) = path_opt else {
-        print_help();
+        if std::io::stdout().is_terminal() {
+            print_help();
+        }
+        else {
+            show_dialog(USAGE_DIALOG_MESSAGE, MessageLevel::Info);
+        }
         return;
     };
 
     if let Err(e) = run(&path, no_transparency_grid) {
-        eprintln!("{e}");
+        show_dialog(e.to_string(), MessageLevel::Error);
         std::process::exit(1);
     }
 }

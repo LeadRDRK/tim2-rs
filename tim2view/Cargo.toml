@@ -7,3 +7,4 @@ edition = "2024"
 tim2-rs = { path = ".." }
 minifb = "0.29"
 anyhow = "1.0"
+rfd = "0.18"
