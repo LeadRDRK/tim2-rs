@@ -639,3 +639,11 @@ impl TryFrom<ImageType> for ColorFormat {
         })
     }
 }
+
+/// Mipmap info. Derived from the mipmap header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MipmapInfo {
+    pub gs_miptbp1: u64,
+    pub gs_miptbp2: u64
+}

@@ -2,7 +2,7 @@
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, little_endian::*};
 
-use crate::Info;
+use crate::{Info, MipmapInfo};
 
 pub const TIM2_MAGIC: [u8; 4] = *b"TIM2";
 
@@ -16,12 +16,18 @@ pub struct Header {
 }
 
 impl Header {
-    pub fn to_info(&self) -> Info {
+    pub const fn to_info(&self) -> Info {
         Info {
             version: self.version,
             format: self.format,
             picture_count: self.picture_count.get()
         }
+    }
+}
+
+impl Into<Info> for Header {
+    fn into(self) -> Info {
+        self.to_info()
     }
 }
 
@@ -50,4 +56,19 @@ pub struct PictureHeader {
 pub struct MipmapHeader {
     pub gs_miptbp1: U64,
     pub gs_miptbp2: U64
+}
+
+impl MipmapHeader {
+    pub const fn to_mipmap_info(&self) -> MipmapInfo {
+        MipmapInfo {
+            gs_miptbp1: self.gs_miptbp1.get(),
+            gs_miptbp2: self.gs_miptbp2.get()
+        }
+    }
+}
+
+impl Into<MipmapInfo> for MipmapHeader {
+    fn into(self) -> MipmapInfo {
+        self.to_mipmap_info()
+    }
 }
