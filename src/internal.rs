@@ -1,3 +1,5 @@
+//! TIM2 format details.
+
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, little_endian::*};
 
 use crate::Info;

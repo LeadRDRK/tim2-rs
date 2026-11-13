@@ -4,10 +4,13 @@ use bitflags::bitflags;
 
 use crate::{Error, internal::PictureHeader};
 
+/// TIM2 info. Derived from the header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Info {
+    /// Format version (3 or 4).
     pub version: u8,
+    /// Format ID (0 -> 16-byte alignment, 1 -> 128-byte alignment).
     pub format: u8,
     pub picture_count: u16
 }
@@ -37,14 +40,17 @@ bitflags! {
 }
 
 impl ClutType {
+    /// Extract the color type bits from this CLUT type.
     pub const fn color_type(self) -> ClutType {
         self.difference(Self::CSM2)
     }
 
+    /// Check if the CLUT type is linear (CSM2).
     pub const fn is_linear(&self) -> bool {
         self.contains(Self::CSM2)
     }
 
+    /// Bits per element for this CLUT type.
     pub const fn bits_per_element(&self) -> Option<usize> {
         Some(match self.color_type() {
             ClutType::RGB16 => 16,
@@ -53,6 +59,7 @@ impl ClutType {
         })
     }
 
+    /// Bytes per element for this CLUT type.
     pub const fn bytes_per_element(&self) -> Option<usize> {
         Some(match self.color_type() {
             ClutType::RGB16 => 2,
@@ -77,6 +84,7 @@ impl TryFrom<u8> for ClutType {
     }
 }
 
+/// Picture image data type,
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(u8)]
@@ -94,7 +102,8 @@ pub enum ImageType {
 }
 
 impl ImageType {
-    pub fn bits_per_pixel(&self) -> usize {
+    /// Bits per pixel for this image type.
+    pub const fn bits_per_pixel(&self) -> usize {
         match self {
             ImageType::Rgb16  => 16,
             ImageType::Rgb24  => 24,
@@ -104,7 +113,11 @@ impl ImageType {
         }
     }
 
-    pub fn bytes_per_n_pixels(&self, n: usize) -> usize {
+    /// Bytes per `n` pixels for this image type.
+    /// 
+    /// Since [`ImageType::IdTex4`] uses only 4 bits for a pixel, it is not safe to assume that
+    /// `bytes_per_n_pixels(n) == n * bytes_per_n_pixels(1)` for all types.
+    pub const fn bytes_per_n_pixels(&self, n: usize) -> usize {
         match self {
             ImageType::Rgb16  => n * 2,
             ImageType::Rgb24  => n * 3,
@@ -114,7 +127,8 @@ impl ImageType {
         }
     }
 
-    pub fn is_indexed(&self) -> bool {
+    /// Check if the image type is indexed.
+    pub const fn is_indexed(&self) -> bool {
         match self {
             ImageType::IdTex4 => true,
             ImageType::IdTex8 => true,
@@ -138,18 +152,24 @@ impl TryFrom<u8> for ImageType {
     }
 }
 
+/// Picture info. Derived from the picture header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PictureInfo {
+    /// Should always be 0.
     pub picture_format: u8,
     pub mipmap_count: u8,
     pub clut_type: ClutType,
     pub image_type: ImageType,
     pub image_width: u16,
     pub image_height: u16,
+    /// GS TEX0 register data.
     pub gs_tex0: u64,
+    /// GS TEX1 register data.
     pub gs_tex1: u64,
+    /// GS TEXAFBAPABE registers data.
     pub gs_texafbapabe: u32,
+    /// GS TEXCLUT register data.
     pub gs_texclut: u32
 }
 
@@ -172,6 +192,7 @@ impl TryFrom<PictureHeader> for PictureInfo {
     }
 }
 
+/// TIM2 picture. A single TIM2 file may contain multiple pictures.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Picture {
@@ -181,6 +202,10 @@ pub struct Picture {
 }
 
 impl Picture {
+    /// Create a new picture from raw data.
+    /// 
+    /// The image data and CLUTs data length will be validated against the
+    /// image type and CLUT type.
     pub fn from_data(
         info: PictureInfo,
         image_data: Vec<u8>,
@@ -208,31 +233,35 @@ impl Picture {
         })
     }
 
-    pub fn info(&self) -> PictureInfo {
+    pub const fn info(&self) -> PictureInfo {
         self.info
     }
 
+    /// Raw image data.
     pub fn image_data(&self) -> &[u8] {
         &self.image_data
     }
 
+    /// Get the CLUT at the specified index.
     pub fn clut(&self, index: usize) -> Option<Clut<'_>> {
         self.cluts
             .get(index)
             .map(|data| Clut::new_borrowed(data, self.info.clut_type))
     }
 
+    /// Get an iterator of all the CLUTs in this picture.
     pub fn cluts(&self) -> impl Iterator<Item = Clut<'_>> {
         self.cluts
             .iter()
             .map(|data| Clut::new_borrowed(data, self.info.clut_type))
     }
 
+    /// Raw CLUT data.
     pub fn clut_buffers(&self) -> &[Vec<u8>] {
         &self.cluts
     }
 
-    pub fn clut_count(&self) -> usize {
+    pub const fn clut_count(&self) -> usize {
         self.cluts.len()
     }
 
@@ -266,6 +295,7 @@ impl Picture {
     }
 }
 
+/// Image data reader.
 pub struct ImageReader<'a, 'b> {
     width: u16,
     height: u16,
@@ -274,7 +304,8 @@ pub struct ImageReader<'a, 'b> {
 }
 
 impl<'a, 'b> ImageReader<'a, 'b> {
-    pub fn new(
+    /// Create a new image reader.
+    pub const fn new(
         width: u16,
         height: u16,
         pixel_reader: PixelReader<'a>,
@@ -283,19 +314,20 @@ impl<'a, 'b> ImageReader<'a, 'b> {
         Self { width, height, pixel_reader, image_data }
     }
 
-    pub fn width(&self) -> u16 {
+    pub const fn width(&self) -> u16 {
         self.width
     }
 
-    pub fn height(&self) -> u16 {
+    pub const fn height(&self) -> u16 {
         self.height
     }
 
-    pub fn pixel_reader(&self) -> &PixelReader<'a> {
+    pub const fn pixel_reader(&self) -> &PixelReader<'a> {
         &self.pixel_reader
     }
 
-    pub fn image_data(&self) -> &'b [u8] {
+    /// Raw image data.
+    pub const fn image_data(&self) -> &'b [u8] {
         self.image_data
     }
 
@@ -314,7 +346,8 @@ impl<'a, 'b> ImageReader<'a, 'b> {
         self.pixel_reader.pixel(self.image_data, index)
     }
 
-    pub fn pixel_count(&self) -> usize {
+    /// Pixel count = width * height.
+    pub const fn pixel_count(&self) -> usize {
         self.width as usize * self.height as usize
     }
 
@@ -352,6 +385,7 @@ impl<'a, 'b> ImageReader<'a, 'b> {
     }
 }
 
+/// Pixel data reader. Interprets the pixel as a [`Color`] in the specified format.
 #[derive(Debug, Clone)]
 pub enum PixelReader<'a> {
     Direct(ColorFormat),
@@ -384,6 +418,9 @@ impl<'a> PixelReader<'a> {
     }
 }
 
+/// Color lookup table (CLUT).
+/// 
+/// The data may be borrowed (from a Picture).
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Clut<'a> {
@@ -392,51 +429,61 @@ pub struct Clut<'a> {
 }
 
 impl<'a> Clut<'a> {
-    pub fn new_borrowed(data: &'a [u8], clut_type: ClutType) -> Self {
+    /// Create a new CLUT from borrowed data.
+    pub const fn new_borrowed(data: &'a [u8], clut_type: ClutType) -> Self {
         Self {
-            data: data.into(),
+            data: Cow::Borrowed(data),
             clut_type
         }
     }
 
+    /// Create a new CLUT with data borrowed from this CLUT.
     pub fn to_borrowed(&'a self) -> Self {
         Self::new_borrowed(&self.data, self.clut_type)
     }
 
+    /// Raw CLUT data.
     pub fn data(&self) -> &[u8] {
         self.data.as_ref()
     }
 
-    pub fn clut_type(&self) -> ClutType {
+    pub const fn clut_type(&self) -> ClutType {
         self.clut_type
     }
 
-    pub fn is_linear(&self) -> bool {
+    /// Shorthand for `clut.clut_type().is_linear()`.
+    pub const fn is_linear(&self) -> bool {
         self.clut_type.is_linear()
     }
 
-    fn swizzle_index(i: usize) -> usize {
+    const fn swizzle_index(i: usize) -> usize {
         let j = (i ^ (i >> 1)) & 8;
         i ^ (j | (j << 1))
     }
 
+    /// Get the color at the specified index.
+    /// 
+    /// If the CLUT is swizzled, this will return the color at the swizzled index.
     pub fn get(&self, i: usize) -> Option<Color> {
         self.get_exact(if self.is_linear() { i } else { Self::swizzle_index(i) })
     }
 
+    /// Get the color at the exact index specified, no swizzling.
     pub fn get_exact(&self, i: usize) -> Option<Color> {
         Color::from_pixel(&self.data, i, self.clut_type.try_into().ok()?)
     }
 }
 
 impl Clut<'static> {
-    pub fn new_owned(data: Vec<u8>, clut_type: ClutType) -> Self {
+    /// Create a new CLUT with owned data.
+    pub const fn new_owned(data: Vec<u8>, clut_type: ClutType) -> Self {
         Self {
-            data: data.into(),
+            data: Cow::Owned(data),
             clut_type
         }
     }
 
+    /// Create a new owned CLUT with data cloned from this CLUT.
     pub fn to_owned<'a>(&'a self) -> Self {
         Self::new_owned(self.data.to_vec(), self.clut_type)
     }
@@ -473,6 +520,10 @@ impl<'a> Into<Option<Clut<'a>>> for &'a Clut<'_> {
     }
 }
 
+/// Color representation in formats supported by TIM2 (in the image data or CLUT).
+/// 
+/// **Note:** The PS2 GS interprets alpha value 128 (0x80) as fully opaque.
+/// Colors in TIM2 pictures should follow the same convention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Color {
@@ -482,6 +533,7 @@ pub enum Color {
 }
 
 impl Color {
+    /// Create a new color from a pixel in the image data at the specified index.
     pub fn from_pixel(data: &[u8], index: usize, format: ColorFormat) -> Option<Color> {
         Some(match format {
             ColorFormat::Rgb16 => Color::Rgb16(data.get(index * 2..(index + 1) * 2)?.try_into().unwrap()),
@@ -490,7 +542,7 @@ impl Color {
         })
     }
 
-    pub fn format(&self) -> ColorFormat {
+    pub const fn format(&self) -> ColorFormat {
         match self {
             Color::Rgb16(_) => ColorFormat::Rgb16,
             Color::Rgb24(_) => ColorFormat::Rgb24,
@@ -498,11 +550,15 @@ impl Color {
         }
     }
 
-    pub fn to_rgba(self) -> [u8; 4] {
+    /// Convert this color to 8-bit RGBA.
+    /// 
+    /// **Note:** The resulting color keeps the alpha value as-is for Rgb32, and uses 128 (0x80)
+    /// as the fully opaque value for other formats, as per the PS2 GS alpha value convention.
+    pub const fn to_rgba(self) -> [u8; 4] {
         match self {
             Color::Rgb16(bytes) => {
                 #[inline]
-                fn conv_5_to_8(x: u16) -> u8 {
+                const fn conv_5_to_8(x: u16) -> u8 {
                     ((x * 527 + 23) >> 6) as u8
                 }
 
@@ -519,8 +575,10 @@ impl Color {
         }
     }
 
-    pub fn to_format(self, format: ColorFormat) -> Color {
-        if self.format() == format {
+    /// Convert this color to the specified format.
+    pub const fn to_format(self, format: ColorFormat) -> Color {
+        // the things i do to stay const
+        if self.format() as u8 == format as u8 {
             return self;
         }
 
@@ -528,7 +586,7 @@ impl Color {
         match format {
             ColorFormat::Rgb16 => {
                 #[inline]
-                fn conv_8_to_5(x: u8) -> u16 {
+                const fn conv_8_to_5(x: u8) -> u16 {
                     (x as u16 * 249 + 1014) >> 11
                 }
 
@@ -545,6 +603,7 @@ impl Color {
     }
 }
 
+/// Color formats supported by TIM2 (in the image data or CLUT).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ColorFormat {

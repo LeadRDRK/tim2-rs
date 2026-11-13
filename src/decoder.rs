@@ -4,6 +4,7 @@ use zerocopy::transmute;
 
 use crate::{ClutType, Error, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
 
+/// TIM2 decoder.
 pub struct Decoder<R> {
     reader: R,
     header: Header,
@@ -13,6 +14,7 @@ pub struct Decoder<R> {
 }
 
 impl<R: Read + Seek> Decoder<R> {
+    /// Create a TIM2 decoder from a reader.
     pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         let mut header = [0u8; size_of::<Header>()];
         reader.read_exact(&mut header)?;
@@ -37,18 +39,23 @@ impl<R: Read + Seek> Decoder<R> {
         })
     }
 
+    /// Move the reader out of the decoder.
     pub fn into_reader(self) -> R {
         self.reader
     }
 
-    pub fn header(&self) -> &Header {
+    pub const fn header(&self) -> &Header {
         &self.header
     }
 
+    /// Picture count from the header.
     pub fn picture_count(&self) -> u16 {
         self.header.picture_count.get()
     }
 
+    /// Read the next picture.
+    /// 
+    /// Returns `Ok(None)` if there are no more pictures to be read.
     pub fn next_picture(&mut self) -> Result<Option<PictureDecoder<&mut R>>, Error> {
         if self.pictures_read == self.picture_count() {
             return Ok(None);
@@ -64,6 +71,7 @@ impl<R: Read + Seek> Decoder<R> {
     }
 }
 
+/// TIM2 picture decoder.
 pub struct PictureDecoder<R> {
     reader: R,
     header: PictureHeader,
@@ -73,6 +81,7 @@ pub struct PictureDecoder<R> {
 }
 
 impl<R: Read + Seek> PictureDecoder<R> {
+    /// Create a picture decoder from a reader with the specified bytes alignment.
     pub fn from_reader(mut reader: R, alignment: usize) -> Result<Self, Error> {
         let mut header = [0u8; size_of::<PictureHeader>()];
         reader.read_exact(&mut header)?;
@@ -121,10 +130,11 @@ impl<R: Read + Seek> PictureDecoder<R> {
         })
     }
 
-    pub fn header(&self) -> &PictureHeader {
+    pub const fn header(&self) -> &PictureHeader {
         &self.header
     }
 
+    /// Only present when the picture has more than one mipmap.
     pub fn mipmap_header(&self) -> Option<&MipmapHeader> {
         self.mipmap_header.as_ref()
     }
@@ -137,11 +147,15 @@ impl<R: Read + Seek> PictureDecoder<R> {
         &self.user_data
     }
 
-    /// Returns whether the picture has image data (at least one mipmap level).
+    /// Whether the picture has image data (at least one mipmap).
     pub fn has_image_data(&self) -> bool {
         self.header.mipmap_count >= 1
     }
 
+    /// Decode the picture.
+    /// 
+    /// **Note:** Mipmapped images are not supported yet. `Error::Unimplemented` will be returned
+    /// when attempting to decode pictures with more than one mipmap.
     pub fn decode(mut self) -> Result<Picture, Error> {
         if self.header.mipmap_count > 1 {
             return Err(Error::Unimplemented("decoding mipmapped images"));

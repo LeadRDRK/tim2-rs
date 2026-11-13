@@ -2,19 +2,29 @@ use std::fmt::{Debug, Display};
 
 #[derive(Debug)]
 pub enum Error {
+    /// I/O error occured in the underlying reader/writer.
     IoError(std::io::Error),
+    /// Invalid format signature (magic number).
     InvalidSignature,
+    /// Unknown format ID in the TIM2 header.
     UnknownFormatId,
+    /// Unimplemented feature.
     Unimplemented(&'static str),
+    /// Invalid data.
     InvalidData(&'static str),
+    /// The value does not represent a known image type.
     InvalidImageType(u8),
+    /// The value does not represent a known CLUT type.
     InvalidClutType(u8),
+    /// The value of the source type cannot be converted to any value of the destination type.
     TypeConversion {
         from: &'static str,
         to: &'static str,
         value: Box<dyn Debug + Send + Sync>
     },
+    /// Cannot process an indexed image without a CLUT.
     NoClutForIndexedImage,
+    /// The image parameters do not match the supplied data.
     InvalidImageParams
 }
 
@@ -49,7 +59,7 @@ impl Display for Error {
             Error::InvalidImageType(value) => write!(f, "Invalid image type: {value}"),
             Error::InvalidClutType(value) => write!(f, "Invalid CLUT type: {value}"),
             Error::TypeConversion { from, to, value } => write!(f, "Cannot convert this {from} to {to}: {:?}", value),
-            Error::NoClutForIndexedImage => write!(f, "Cannot decode indexed image without a CLUT"),
+            Error::NoClutForIndexedImage => write!(f, "Cannot process an indexed image without a CLUT"),
             Error::InvalidImageParams => write!(f, "Invalid image parameters")
         }
     }
