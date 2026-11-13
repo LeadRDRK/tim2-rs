@@ -364,6 +364,9 @@ impl<'a, 'b> ImageReader<'a, 'b> {
     /// Read all of the pixels in the image, converted to RGBA format.
     /// 
     /// Returns `Error::InvalidImageParams` if any of the pixels couldn't be read.
+    /// 
+    /// **Note:** The conversion uses the alpha value 128 (0x80) as fully opaque,
+    /// as per the PS2 GS alpha value convention.
     pub fn read_to_rgba(&self) -> Result<Vec<u8>, Error> {
         let buffer_len = self.pixel_count() * 4;
 
