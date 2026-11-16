@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use bitflags::bitflags;
 
-use crate::{Error, internal::PictureHeader};
+use crate::Error;
 
 /// TIM2 info. Derived from the header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -173,30 +173,12 @@ pub struct PictureInfo {
     pub gs_texclut: u32
 }
 
-impl TryFrom<PictureHeader> for PictureInfo {
-    type Error = Error;
-
-    fn try_from(header: PictureHeader) -> Result<Self, Self::Error> {
-        Ok(Self {
-            picture_format: header.picture_format,
-            mipmap_count: header.mipmap_count,
-            clut_type: header.clut_type.try_into()?,
-            image_type: header.image_type.try_into()?,
-            image_width: header.image_width.get(),
-            image_height: header.image_height.get(),
-            gs_tex0: header.gs_tex0.get(),
-            gs_tex1: header.gs_tex1.get(),
-            gs_texafbapabe: header.gs_texafbapabe.get(),
-            gs_texclut: header.gs_texclut.get()
-        })
-    }
-}
-
 /// TIM2 picture. A single TIM2 file may contain multiple pictures.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Picture {
     info: PictureInfo,
+    user_data: Vec<u8>,
     image_data: Vec<u8>,
     clut_data: Vec<u8>,
     clut_len: usize
@@ -213,6 +195,7 @@ impl Picture {
     /// Trailing data is ignored and will be kept as-is.
     pub fn new(
         info: PictureInfo,
+        user_data: Vec<u8>,
         image_data: Vec<u8>,
         clut_data: Vec<u8>,
         clut_color_count: u16
@@ -240,6 +223,7 @@ impl Picture {
 
         Ok(Self {
             info,
+            user_data,
             image_data,
             clut_data,
             clut_len
@@ -248,6 +232,11 @@ impl Picture {
 
     pub const fn info(&self) -> PictureInfo {
         self.info
+    }
+
+    /// Raw user data. May contain an extended header.
+    pub fn user_data(&self) -> &[u8] {
+        &self.user_data
     }
 
     /// Raw image data.
@@ -285,6 +274,16 @@ impl Picture {
     /// Byte length of a single CLUT.
     pub const fn clut_len(&self) -> usize {
         self.clut_len
+    }
+
+    /// Number of colors in the CLUTs.
+    pub const fn clut_color_count(&self) -> usize {
+        if let Some(bytes_per_element) = self.info.clut_type.bytes_per_element() {
+            self.clut_len / bytes_per_element
+        }
+        else {
+            0
+        }
     }
 
     /// Get an image reader for this picture's image.

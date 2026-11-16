@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::{fmt::{Debug, Display}, num::TryFromIntError};
 
 #[derive(Debug)]
 pub enum Error {
@@ -25,7 +25,10 @@ pub enum Error {
     /// Cannot process an indexed image without a CLUT.
     NoClutForIndexedImage,
     /// The image parameters do not match the supplied data.
-    InvalidImageParams
+    InvalidImageParams,
+    /// Attempted to write past the "end of file".
+    EofExpected,
+    TryFromIntError(TryFromIntError)
 }
 
 impl Error {
@@ -60,7 +63,9 @@ impl Display for Error {
             Error::InvalidClutType(value) => write!(f, "Invalid CLUT type: {value}"),
             Error::TypeConversion { from, to, value } => write!(f, "Cannot convert this {from} to {to}: {:?}", value),
             Error::NoClutForIndexedImage => write!(f, "Cannot process an indexed image without a CLUT"),
-            Error::InvalidImageParams => write!(f, "Invalid image parameters")
+            Error::InvalidImageParams => write!(f, "Invalid image parameters"),
+            Error::EofExpected => write!(f, "EOF expected"),
+            Error::TryFromIntError(error) => Display::fmt(&error, f),
         }
     }
 }
@@ -70,5 +75,11 @@ impl std::error::Error for Error {}
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::IoError(value)
+    }
+}
+
+impl From<TryFromIntError> for Error {
+    fn from(value: TryFromIntError) -> Self {
+        Self::TryFromIntError(value)
     }
 }

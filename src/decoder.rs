@@ -170,6 +170,6 @@ impl<R: Read + Seek> PictureDecoder<R> {
         let clut_color_count = self.header.clut_color_count.get();
         let info: PictureInfo = self.header.try_into()?;
 
-        Picture::new(info, image_data, clut_data, clut_color_count)
+        Picture::new(info, self.user_data, image_data, clut_data, clut_color_count)
     }
 }

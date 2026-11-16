@@ -2,7 +2,7 @@
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, little_endian::*};
 
-use crate::{Info, MipmapInfo};
+use crate::{Error, Info, MipmapInfo, PictureInfo};
 
 pub const TIM2_MAGIC: [u8; 4] = *b"TIM2";
 
@@ -23,11 +23,26 @@ impl Header {
             picture_count: self.picture_count.get()
         }
     }
+
+    pub const fn from_info(info: &Info) -> Self {
+        Self {
+            magic: TIM2_MAGIC,
+            version: info.version,
+            format: info.format,
+            picture_count: U16::new(info.picture_count)
+        }
+    }
 }
 
 impl Into<Info> for Header {
     fn into(self) -> Info {
         self.to_info()
+    }
+}
+
+impl From<Info> for Header {
+    fn from(info: Info) -> Self {
+        Self::from_info(&info)
     }
 }
 
@@ -49,6 +64,25 @@ pub struct PictureHeader {
     pub gs_tex1: U64,
     pub gs_texafbapabe: U32,
     pub gs_texclut: U32
+}
+
+impl TryInto<PictureInfo> for PictureHeader {
+    type Error = Error;
+
+    fn try_into(self) -> Result<PictureInfo, Self::Error> {
+        Ok(PictureInfo {
+            picture_format: self.picture_format,
+            mipmap_count: self.mipmap_count,
+            clut_type: self.clut_type.try_into()?,
+            image_type: self.image_type.try_into()?,
+            image_width: self.image_width.get(),
+            image_height: self.image_height.get(),
+            gs_tex0: self.gs_tex0.get(),
+            gs_tex1: self.gs_tex1.get(),
+            gs_texafbapabe: self.gs_texafbapabe.get(),
+            gs_texclut: self.gs_texclut.get()
+        })
+    }
 }
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy)]
