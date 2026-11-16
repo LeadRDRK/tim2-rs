@@ -198,38 +198,51 @@ impl TryFrom<PictureHeader> for PictureInfo {
 pub struct Picture {
     info: PictureInfo,
     image_data: Vec<u8>,
-    cluts: Vec<Vec<u8>>
+    clut_data: Vec<u8>,
+    clut_len: usize
 }
 
 impl Picture {
     /// Create a new picture from raw data.
     /// 
-    /// The image data and CLUTs data length will be validated against the
-    /// image type and CLUT type.
-    pub fn from_data(
+    /// The CLUT data may contain multiple CLUTs. The length for each CLUT is determined
+    /// by the CLUT color count.
+    /// 
+    /// The image data and CLUT data length will be validated against the image type, image size,
+    /// CLUT type and CLUT color count. The data is considered valid if it's large enough.
+    /// Trailing data is ignored and will be kept as-is.
+    pub fn new(
         info: PictureInfo,
         image_data: Vec<u8>,
-        cluts: Vec<Vec<u8>>
+        clut_data: Vec<u8>,
+        clut_color_count: u16
     ) -> Result<Self, Error> {
         let image_pixels = info.image_width as usize * info.image_height as usize;
         let image_data_len = info.image_type.bytes_per_n_pixels(image_pixels);
-        if image_data.len() < image_data_len { // trailing data is valid
+        if image_data.len() < image_data_len {
             return Err(Error::InvalidData("insufficient image data length"));
         }
 
-        if info.clut_type != ClutType::NONE {
+        let clut_len = if info.clut_type != ClutType::NONE {
             let clut_bytes_per_element = info.clut_type.bytes_per_element()
                 .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
 
-            if cluts.iter().any(|clut| clut.len() % clut_bytes_per_element != 0) {
-                return Err(Error::InvalidData("unexpected CLUT data length"));
+            // OK: this will still allow empty clut data when there's a clut type
+            let clut_len = clut_color_count as usize * clut_bytes_per_element;
+            if clut_data.len() < clut_len {
+                return Err(Error::InvalidData("insufficient CLUT data length"));
             }
+            clut_len
         }
+        else {
+            0
+        };
 
         Ok(Self {
             info,
             image_data,
-            cluts
+            clut_data,
+            clut_len
         })
     }
 
@@ -244,31 +257,41 @@ impl Picture {
 
     /// Get the CLUT at the specified index.
     pub fn clut(&self, index: usize) -> Option<Clut<'_>> {
-        self.cluts
-            .get(index)
+        if self.clut_len == 0 { return None; }
+
+        let offset = index * self.clut_len;
+        self.clut_data
+            .get(offset..offset + self.clut_len)
             .map(|data| Clut::new_borrowed(data, self.info.clut_type))
     }
 
     /// Get an iterator of all the CLUTs in this picture.
     pub fn cluts(&self) -> impl Iterator<Item = Clut<'_>> {
-        self.cluts
-            .iter()
+        std::iter::once(&self.clut_data)
+            .filter(|_| self.clut_len != 0)
+            .flat_map(|slice| slice.chunks_exact(self.clut_len))
             .map(|data| Clut::new_borrowed(data, self.info.clut_type))
     }
 
     /// Raw CLUT data.
-    pub fn clut_buffers(&self) -> &[Vec<u8>] {
-        &self.cluts
+    pub fn clut_data(&self) -> &[u8] {
+        &self.clut_data
     }
 
     pub const fn clut_count(&self) -> usize {
-        self.cluts.len()
+        self.clut_data.len() / self.clut_len
+    }
+
+    /// Byte length of a single CLUT.
+    pub const fn clut_len(&self) -> usize {
+        self.clut_len
     }
 
     /// Get an image reader for this picture's image.
     /// 
     /// If the image is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
-    /// has one. Otherwise, `Error::NoClutForIndexedImage` will be returned. \
+    /// has one. Otherwise, `Error::NoClutForIndexedImage` will be returned.
+    /// 
     /// If the image uses direct colors, `clut` is ignored. As a default, using `None` will work for
     /// all valid pictures.
     pub fn image_reader<'a, 'b: 'a>(&'b self, clut: impl Into<Option<Clut<'a>>>) -> Result<ImageReader<'a, 'b>, Error> {

@@ -2,7 +2,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 use zerocopy::transmute;
 
-use crate::{ClutType, Error, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
+use crate::{Error, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
 
 /// TIM2 decoder.
 pub struct Decoder<R> {
@@ -169,20 +169,7 @@ impl<R: Read + Seek> PictureDecoder<R> {
 
         let clut_color_count = self.header.clut_color_count.get();
         let info: PictureInfo = self.header.try_into()?;
-        let cluts = if info.clut_type == ClutType::NONE {
-            Vec::new()
-        }
-        else {
-            let clut_bytes_per_element = info.clut_type.bytes_per_element()
-                .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
-            let single_clut_size = clut_color_count as usize * clut_bytes_per_element;
 
-            clut_data
-                .chunks_exact(single_clut_size) // ignores trailing data
-                .map(|s| s.to_vec())
-                .collect::<Vec<_>>()
-        };
-
-        Picture::from_data(info, image_data, cluts)
+        Picture::new(info, image_data, clut_data, clut_color_count)
     }
 }
