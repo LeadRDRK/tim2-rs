@@ -2,6 +2,9 @@
 name = "tim2-rs"
 version = "0.1.0"
 edition = "2024"
+description = "TIM2 texture decoding and encoding library"
+license = "MIT"
+repository = "https://github.com/LeadRDRK/tim2-rs"
 
 [lib]
 name = "tim2"

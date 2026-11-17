@@ -3,6 +3,7 @@ name = "tim2view"
 version = "0.1.0"
 edition = "2024"
 description = "Simple TIM2 texture viewer"
+license = "MIT"
 repository = "https://github.com/LeadRDRK/tim2-rs"
 
 [dependencies]
