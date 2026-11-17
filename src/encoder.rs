@@ -2,7 +2,13 @@ use std::io::Write;
 
 use zerocopy::IntoBytes;
 
-use crate::{Error, FormatId, Info, Picture, internal::{Header, PictureHeader}};
+use crate::{Error, Info, Picture, internal::{Header, PictureHeader}};
+
+const ZEROS: [u8; 128] = [0u8; 128];
+fn padding(size: usize, alignment: u8) -> &'static [u8] {
+    let alignment = alignment as usize;
+    &ZEROS[..0usize.wrapping_sub(size) & (alignment - 1)]
+}
 
 /// TIM2 encoder.
 pub struct Encoder<W> {
@@ -20,25 +26,10 @@ impl<W: Write> Encoder<W> {
     pub fn from_writer(mut writer: W, info: &Info) -> Result<Self, Error> {
         let header = Header::from_info(info);
 
-        // write aligned header (avoiding an allocation)
-        let alignment = match info.format_id {
-            FormatId::Align16 => {
-                const ALIGNMENT: u8 = FormatId::Align16.alignment();
-                let mut buffer = [0u8; ALIGNMENT as _];
-                buffer[..size_of::<Header>()].copy_from_slice(header.as_bytes());
-                writer.write_all(&buffer)?;
-
-                ALIGNMENT
-            },
-            FormatId::Align128 => {
-                const ALIGNMENT: u8 = FormatId::Align128.alignment();
-                let mut buffer = [0u8; ALIGNMENT as _];
-                buffer[..size_of::<Header>()].copy_from_slice(header.as_bytes());
-                writer.write_all(&buffer)?;
-
-                ALIGNMENT
-            }
-        };
+        // write aligned header
+        let alignment = info.format_id.alignment();
+        writer.write_all(header.as_bytes())?;
+        writer.write_all(padding(size_of::<Header>(), alignment))?;
 
         Ok(Self {
             writer,
@@ -53,23 +44,27 @@ impl<W: Write> Encoder<W> {
     /// Returns [`Error::EofExpected`] if the number of pictures written is equals to the
     /// picture count specified in [`Info`].
     pub fn write_picture(&mut self, picture: &Picture) -> Result<(), Error> {
-        const PICTURE_HEADER_SIZE: usize = size_of::<PictureHeader>();
-
         if self.pictures_written == self.picture_count {
             return Err(Error::EofExpected);
         }
 
         let info = picture.info();
-        let user_data = picture.user_data();
-        let header_size: u16 = (size_of::<PictureHeader>() + user_data.len())
-            .next_multiple_of(self.alignment as _)
-            .try_into()?;
-        let image_data_size: u32 = picture.image_data().len().try_into()?;
-        let clut_size: u32 = picture.clut_data().len().try_into()?;
+        let orig_header_size = size_of::<PictureHeader>() + picture.user_data().len();
+
+        let (header_size, header_padding) = self.aligned_size_and_padding::<u16>(orig_header_size)
+            .ok_or_else(|| Error::InvalidData("user data too large"))?;
+
+        let (image_data_size, image_data_padding) = self.aligned_size_and_padding(picture.image_data().len())
+            .ok_or_else(|| Error::InvalidData("image data too large"))?;
+
+        let (clut_size, clut_padding) = self.aligned_size_and_padding(picture.clut_data().len())
+            .ok_or_else(|| Error::InvalidData("CLUT data too large"))?;
+
         let total_size = (header_size as u32)
             .checked_add(image_data_size)
             .and_then(|size| size.checked_add(clut_size))
             .ok_or_else(|| Error::InvalidData("total picture size exceeds u32 limit"))?;
+
         let clut_color_count: u16 = picture.clut_color_count().try_into()?;
 
         let header = PictureHeader {
@@ -90,15 +85,23 @@ impl<W: Write> Encoder<W> {
             gs_texclut: info.gs_texclut.into(),
         };
 
-        let mut header_buffer = vec![0u8; header_size as _];
-        header_buffer[..PICTURE_HEADER_SIZE].copy_from_slice(header.as_bytes());
-        header_buffer[PICTURE_HEADER_SIZE..PICTURE_HEADER_SIZE + user_data.len()].copy_from_slice(user_data);
+        self.writer.write_all(header.as_bytes())?;
+        self.writer.write_all(picture.user_data())?;
+        self.writer.write_all(header_padding)?;
 
-        self.writer.write_all(&header_buffer)?;
         self.writer.write_all(picture.image_data())?;
+        self.writer.write_all(image_data_padding)?;
+
         self.writer.write_all(picture.clut_data())?;
+        self.writer.write_all(clut_padding)?;
 
         self.pictures_written += 1;
         Ok(())
+    }
+
+    fn aligned_size_and_padding<T: TryFrom<usize>>(&self, size: usize) -> Option<(T, &'static [u8])> {
+        let alignment = self.alignment as usize;
+        let aligned = (size.checked_add(alignment)? - 1) & !(alignment - 1);
+        Some((aligned.try_into().ok()?, &ZEROS[..aligned - size]))
     }
 }
