@@ -289,7 +289,7 @@ impl Picture {
     /// Get an image reader for this picture's image.
     /// 
     /// If the image is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
-    /// has one. Otherwise, `Error::NoClutForIndexedImage` will be returned.
+    /// has one. Otherwise, [`Error::NoClutForIndexedImage`] will be returned.
     /// 
     /// If the image uses direct colors, `clut` is ignored. As a default, using `None` will work for
     /// all valid pictures.
@@ -375,7 +375,7 @@ impl<'a, 'b> ImageReader<'a, 'b> {
 
     /// Read all of the pixels in the image.
     /// 
-    /// Returns `Error::InvalidImageParams` if any of the pixels couldn't be read.
+    /// Returns [`Error::InvalidImageParams`] if any of the pixels couldn't be read.
     pub fn read(&self) -> Result<Vec<Color>, Error> {
         (0..self.pixel_count())
             .map(|index| self.pixel(index))
@@ -385,7 +385,7 @@ impl<'a, 'b> ImageReader<'a, 'b> {
 
     /// Read all of the pixels in the image, converted to RGBA format.
     /// 
-    /// Returns `Error::InvalidImageParams` if any of the pixels couldn't be read.
+    /// Returns [`Error::InvalidImageParams`] if any of the pixels couldn't be read.
     /// 
     /// **Note:** The conversion uses the alpha value 128 (0x80) as fully opaque,
     /// as per the PS2 GS alpha value convention.

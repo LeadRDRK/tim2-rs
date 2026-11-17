@@ -154,7 +154,7 @@ impl<R: Read + Seek> PictureDecoder<R> {
 
     /// Decode the picture.
     /// 
-    /// **Note:** Mipmapped images are not supported yet. `Error::Unimplemented` will be returned
+    /// **Note:** Mipmapped images are not supported yet. [`Error::Unimplemented`] will be returned
     /// when attempting to decode pictures with more than one mipmap.
     pub fn decode(mut self) -> Result<Picture, Error> {
         if self.header.mipmap_count > 1 {
