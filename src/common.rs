@@ -8,6 +8,9 @@ use crate::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Info {
+    /// Whether the format signature is for the CLUT2 format.
+    /// In other words, this will be `false` for TIM2 files.
+    pub is_clut2: bool,
     /// Format version (3 or 4).
     pub version: u8,
     /// Format ID (0 -> 16-byte alignment, 1 -> 128-byte alignment).

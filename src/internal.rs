@@ -5,6 +5,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, little_e
 use crate::{Error, Info, MipmapInfo, PictureInfo};
 
 pub const TIM2_MAGIC: [u8; 4] = *b"TIM2";
+pub const CLUT2_MAGIC: [u8; 4] = *b"CLT2";
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -18,6 +19,7 @@ pub struct Header {
 impl Header {
     pub const fn to_info(&self) -> Info {
         Info {
+            is_clut2: u32::from_ne_bytes(self.magic) == u32::from_ne_bytes(CLUT2_MAGIC),
             version: self.version,
             format: self.format,
             picture_count: self.picture_count.get()
@@ -26,7 +28,7 @@ impl Header {
 
     pub const fn from_info(info: &Info) -> Self {
         Self {
-            magic: TIM2_MAGIC,
+            magic: if info.is_clut2 { CLUT2_MAGIC } else { TIM2_MAGIC },
             version: info.version,
             format: info.format,
             picture_count: U16::new(info.picture_count)

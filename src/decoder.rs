@@ -2,7 +2,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 use zerocopy::transmute;
 
-use crate::{Error, Info, MipmapInfo, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
+use crate::{Error, Info, MipmapInfo, Picture, PictureInfo, internal::*};
 
 /// TIM2 decoder.
 pub struct Decoder<R> {
@@ -20,7 +20,7 @@ impl<R: Read + Seek> Decoder<R> {
         reader.read_exact(&mut header)?;
 
         let header: Header = transmute!(header);
-        if header.magic != TIM2_MAGIC {
+        if header.magic != TIM2_MAGIC && header.magic != CLUT2_MAGIC {
             return Err(Error::InvalidSignature);
         }
 
