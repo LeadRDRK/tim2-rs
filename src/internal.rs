@@ -99,10 +99,23 @@ impl MipmapHeader {
             gs_miptbp2: self.gs_miptbp2.get()
         }
     }
+
+    pub const fn from_mipmap_info(info: &MipmapInfo) -> Self {
+        Self {
+            gs_miptbp1: U64::new(info.gs_miptbp1),
+            gs_miptbp2: U64::new(info.gs_miptbp2)
+        }
+    }
 }
 
 impl Into<MipmapInfo> for MipmapHeader {
     fn into(self) -> MipmapInfo {
         self.to_mipmap_info()
+    }
+}
+
+impl From<MipmapInfo> for MipmapHeader {
+    fn from(info: MipmapInfo) -> Self {
+        Self::from_mipmap_info(&info)
     }
 }

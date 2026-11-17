@@ -2,12 +2,12 @@ use std::io::{Read, Seek, SeekFrom};
 
 use zerocopy::transmute;
 
-use crate::{Error, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
+use crate::{Error, Info, MipmapInfo, Picture, PictureInfo, internal::{Header, MipmapHeader, PictureHeader, TIM2_MAGIC}};
 
 /// TIM2 decoder.
 pub struct Decoder<R> {
     reader: R,
-    header: Header,
+    info: Info,
     alignment: u8,
     pictures_read: u16,
     next_picture_offset: u64,
@@ -29,10 +29,11 @@ impl<R: Read + Seek> Decoder<R> {
             1 => 128,
             _ => return Err(Error::UnknownFormatId)
         };
+        let info = header.to_info();
 
         Ok(Self {
             reader,
-            header,
+            info,
             alignment,
             pictures_read: 0,
             next_picture_offset: alignment as _
@@ -44,20 +45,22 @@ impl<R: Read + Seek> Decoder<R> {
         self.reader
     }
 
-    pub const fn header(&self) -> &Header {
-        &self.header
+    /// Info derived from the header.
+    pub const fn info(&self) -> &Info {
+        &self.info
     }
 
-    /// Picture count from the header.
+    /// Picture count from the header. Determines how many pictures [`next_picture`](Self::next_picture)
+    /// will produce.
     pub fn picture_count(&self) -> u16 {
-        self.header.picture_count.get()
+        self.info.picture_count
     }
 
     /// Read the next picture.
     /// 
     /// Returns `Ok(None)` if there are no more pictures to be read.
     pub fn next_picture(&mut self) -> Result<Option<PictureDecoder<&mut R>>, Error> {
-        if self.pictures_read == self.picture_count() {
+        if self.pictures_read == self.info.picture_count {
             return Ok(None);
         }
 
@@ -75,7 +78,7 @@ impl<R: Read + Seek> Decoder<R> {
 pub struct PictureDecoder<R> {
     reader: R,
     header: PictureHeader,
-    mipmap_header: Option<MipmapHeader>,
+    mipmap_info: Option<MipmapInfo>,
     mipmap_sizes: Vec<u32>,
     user_data: Vec<u8>
 }
@@ -88,7 +91,7 @@ impl<R: Read + Seek> PictureDecoder<R> {
 
         let header: PictureHeader = transmute!(header);
         let header_size = header.header_size.get();
-        let mut mipmap_header = None;
+        let mut mipmap_info = None;
         let mut mipmap_sizes = vec![0u32; header.mipmap_count as _];
         let mut user_data = Vec::new();
         if header_size > size_of::<PictureHeader>() as u16 {
@@ -102,7 +105,8 @@ impl<R: Read + Seek> PictureDecoder<R> {
 
                 let (header_buffer, sizes_buffer) = buffer.split_at(size_of::<MipmapHeader>());
                 let header_buffer: [u8; size_of::<MipmapHeader>()] = header_buffer.try_into().unwrap();
-                mipmap_header = Some(transmute!(header_buffer));
+                let mipmap_header: MipmapHeader = transmute!(header_buffer);
+                mipmap_info = Some(mipmap_header.to_mipmap_info());
 
                 for (i, size) in mipmap_sizes.iter_mut().enumerate() {
                     let start = i * size_of::<u32>();
@@ -124,32 +128,25 @@ impl<R: Read + Seek> PictureDecoder<R> {
         Ok(Self {
             reader,
             header,
-            mipmap_header,
+            mipmap_info,
             mipmap_sizes,
             user_data
         })
     }
 
-    pub const fn header(&self) -> &PictureHeader {
-        &self.header
-    }
-
+    /// Info derived from the mipmap header.
+    /// 
     /// Only present when the picture has more than one mipmap.
-    pub fn mipmap_header(&self) -> Option<&MipmapHeader> {
-        self.mipmap_header.as_ref()
+    pub const fn mipmap_info(&self) -> Option<&MipmapInfo> {
+        self.mipmap_info.as_ref()
     }
 
     pub fn mipmap_sizes(&self) -> &[u32] {
         &self.mipmap_sizes
     }
-    
+
     pub fn user_data(&self) -> &[u8] {
         &self.user_data
-    }
-
-    /// Whether the picture has image data (at least one mipmap).
-    pub fn has_image_data(&self) -> bool {
-        self.header.mipmap_count >= 1
     }
 
     /// Decode the picture.

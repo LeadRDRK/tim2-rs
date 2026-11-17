@@ -2,7 +2,7 @@ mod common;
 mod decoder;
 mod encoder;
 mod error;
-pub mod internal;
+mod internal;
 
 pub use common::*;
 pub use decoder::*;
