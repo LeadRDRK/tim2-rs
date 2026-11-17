@@ -8,7 +8,6 @@ use crate::{Error, Info, MipmapInfo, Picture, PictureInfo, internal::*};
 pub struct Decoder<R> {
     reader: R,
     info: Info,
-    alignment: u8,
     pictures_read: u16,
     next_picture_offset: u64,
 }
@@ -20,23 +19,13 @@ impl<R: Read + Seek> Decoder<R> {
         reader.read_exact(&mut header)?;
 
         let header: Header = transmute!(header);
-        if header.magic != TIM2_MAGIC && header.magic != CLUT2_MAGIC {
-            return Err(Error::InvalidSignature);
-        }
-
-        let alignment = match header.format {
-            0 => 16,
-            1 => 128,
-            _ => return Err(Error::UnknownFormatId)
-        };
-        let info = header.to_info();
+        let info: Info = header.try_into()?; // also checks signature
 
         Ok(Self {
             reader,
             info,
-            alignment,
             pictures_read: 0,
-            next_picture_offset: alignment as _
+            next_picture_offset: info.alignment() as _
         })
     }
 
@@ -65,7 +54,7 @@ impl<R: Read + Seek> Decoder<R> {
         }
 
         self.reader.seek(SeekFrom::Start(self.next_picture_offset))?;
-        let picture = PictureDecoder::from_reader(self.reader.by_ref(), self.alignment as _)?;
+        let picture = PictureDecoder::from_reader(self.reader.by_ref(), self.info.alignment() as _)?;
 
         self.next_picture_offset += picture.header.total_size.get() as u64;
         self.pictures_read += 1;

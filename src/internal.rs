@@ -11,34 +11,36 @@ pub const CLUT2_MAGIC: [u8; 4] = *b"CLT2";
 #[repr(C, packed)]
 pub struct Header {
     pub magic: [u8; 4],
-    pub version: u8,
-    pub format: u8,
+    pub format_version: u8,
+    pub format_id: u8,
     pub picture_count: U16
 }
 
 impl Header {
-    pub const fn to_info(&self) -> Info {
-        Info {
-            is_clut2: u32::from_ne_bytes(self.magic) == u32::from_ne_bytes(CLUT2_MAGIC),
-            version: self.version,
-            format: self.format,
-            picture_count: self.picture_count.get()
-        }
-    }
-
     pub const fn from_info(info: &Info) -> Self {
         Self {
             magic: if info.is_clut2 { CLUT2_MAGIC } else { TIM2_MAGIC },
-            version: info.version,
-            format: info.format,
+            format_version: info.format_version,
+            format_id: info.format_id as _,
             picture_count: U16::new(info.picture_count)
         }
     }
 }
 
-impl Into<Info> for Header {
-    fn into(self) -> Info {
-        self.to_info()
+impl TryInto<Info> for Header {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Info, Self::Error> {
+        Ok(Info {
+            is_clut2: match self.magic {
+                TIM2_MAGIC => false,
+                CLUT2_MAGIC => true,
+                _ => return Err(Error::InvalidSignature)
+            },
+            format_version: self.format_version,
+            format_id: self.format_id.try_into()?,
+            picture_count: self.picture_count.get()
+        })
     }
 }
 

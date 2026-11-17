@@ -2,7 +2,7 @@ use std::io::Write;
 
 use zerocopy::IntoBytes;
 
-use crate::{Error, Info, Picture, internal::{Header, PictureHeader}};
+use crate::{Error, FormatId, Info, Picture, internal::{Header, PictureHeader}};
 
 /// TIM2 encoder.
 pub struct Encoder<W> {
@@ -21,22 +21,23 @@ impl<W: Write> Encoder<W> {
         let header = Header::from_info(info);
 
         // write aligned header (avoiding an allocation)
-        let alignment = match header.format {
-            0 => {
-                let mut buffer = [0u8; 16];
+        let alignment = match info.format_id {
+            FormatId::Align16 => {
+                const ALIGNMENT: u8 = FormatId::Align16.alignment();
+                let mut buffer = [0u8; ALIGNMENT as _];
                 buffer[..size_of::<Header>()].copy_from_slice(header.as_bytes());
                 writer.write_all(&buffer)?;
 
-                16
+                ALIGNMENT
             },
-            1 => {
-                let mut buffer = [0u8; 128];
+            FormatId::Align128 => {
+                const ALIGNMENT: u8 = FormatId::Align128.alignment();
+                let mut buffer = [0u8; ALIGNMENT as _];
                 buffer[..size_of::<Header>()].copy_from_slice(header.as_bytes());
                 writer.write_all(&buffer)?;
 
-                128
-            },
-            _ => return Err(Error::UnknownFormatId)
+                ALIGNMENT
+            }
         };
 
         Ok(Self {

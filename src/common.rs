@@ -12,10 +12,45 @@ pub struct Info {
     /// In other words, this will be `false` for TIM2 files.
     pub is_clut2: bool,
     /// Format version (3 or 4).
-    pub version: u8,
-    /// Format ID (0 -> 16-byte alignment, 1 -> 128-byte alignment).
-    pub format: u8,
+    pub format_version: u8,
+    pub format_id: FormatId,
     pub picture_count: u16
+}
+
+impl Info {
+    /// Byte alignment of the format.
+    pub const fn alignment(&self) -> u8 {
+        self.format_id.alignment()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(u8)]
+pub enum FormatId {
+    Align16,
+    Align128
+}
+
+impl FormatId {
+    pub const fn alignment(&self) -> u8 {
+        match self {
+            FormatId::Align16 => 16,
+            FormatId::Align128 => 128
+        }
+    }
+}
+
+impl TryFrom<u8> for FormatId {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Align16,
+            1 => Self::Align128,
+            _ => return Err(Error::InvalidFormatId(value))
+        })
+    }
 }
 
 bitflags! {
