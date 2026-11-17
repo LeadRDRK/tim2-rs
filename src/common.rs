@@ -22,18 +22,24 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ClutType: u8 {
-        const RGB16 = 0b00000001;
+        // HACK: reverse order for the Debug impl to show the correct color type
         const RGB32 = 0b00000011;
+        const RGB24 = 0b00000010;
+        const RGB16 = 0b00000001;
         const CSM2  = 0b10000000;
 
         /// PAL_NONE (no palette)
         const NONE = 0;
         /// PAL_RGB16_CSM1 (16-bit palette, swizzled)
         const RGB16_CSM1 = Self::RGB16.bits();
+        /// PAL_RGB24_CSM1 (24-bit palette, swizzled)
+        const RGB24_CSM1 = Self::RGB24.bits();
         /// PAL_RGB32_CSM1 (32-bit palette, swizzled)
         const RGB32_CSM1 = Self::RGB32.bits();
         /// PAL_RGB16_CSM2 (16-bit palette, linear)
         const RGB16_CSM2 = Self::RGB16.bits() | Self::CSM2.bits();
+        /// PAL_RGB24_CSM2 (24-bit palette, linear)
+        const RGB24_CSM2 = Self::RGB24.bits() | Self::CSM2.bits();
         /// PAL_RGB32_CSM2 (32-bit palette, linear)
         const RGB32_CSM2 = Self::RGB32.bits() | Self::CSM2.bits();
 
@@ -57,6 +63,7 @@ impl ClutType {
     pub const fn bits_per_element(&self) -> Option<usize> {
         Some(match self.color_type() {
             ClutType::RGB16 => 16,
+            ClutType::RGB24 => 24,
             ClutType::RGB32 => 32,
             _ => return None
         })
@@ -66,6 +73,7 @@ impl ClutType {
     pub const fn bytes_per_element(&self) -> Option<usize> {
         Some(match self.color_type() {
             ClutType::RGB16 => 2,
+            ClutType::RGB24 => 3,
             ClutType::RGB32 => 4,
             _ => return None
         })
@@ -79,8 +87,10 @@ impl TryFrom<u8> for ClutType {
         Ok(match value {
             0 => Self::NONE,
             1 => Self::RGB16_CSM1,
+            2 => Self::RGB24_CSM1,
             3 => Self::RGB32_CSM1,
             129 => Self::RGB16_CSM2,
+            130 => Self::RGB24_CSM2,
             131 => Self::RGB32_CSM2,
             _ => return Err(Error::InvalidClutType(value))
         })
@@ -649,6 +659,7 @@ impl TryFrom<ClutType> for ColorFormat {
     fn try_from(value: ClutType) -> Result<Self, Self::Error> {
         Ok(match value.color_type() {
             ClutType::RGB16 => ColorFormat::Rgb16,
+            ClutType::RGB24 => ColorFormat::Rgb24,
             ClutType::RGB32 => ColorFormat::Rgb32,
             _ => return Err(Error::type_conversion::<ClutType, ColorFormat>(value))
         })
