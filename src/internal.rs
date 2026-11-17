@@ -7,6 +7,17 @@ use crate::{Error, Info, MipmapInfo, PictureInfo};
 pub const TIM2_MAGIC: [u8; 4] = *b"TIM2";
 pub const CLUT2_MAGIC: [u8; 4] = *b"CLT2";
 
+pub const MIPMAP_HEADER_SIZES: [usize; 8] = [
+    0,  // No image data (CLUT2)
+    0,  // Main image only
+    32, // LV1
+    32, // LV2
+    32, // LV3
+    48, // LV4
+    48, // LV5
+    48  // LV6
+];
+
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct Header {

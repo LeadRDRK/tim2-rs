@@ -18,6 +18,8 @@ pub enum Error {
     InvalidClutType(u8),
     /// The value does not represent a known format ID.
     InvalidFormatId(u8),
+    /// Mipmap count is larger than 7.
+    InvalidMipmapCount(u8),
     /// The value of the source type cannot be converted to any value of the destination type.
     TypeConversion {
         from: &'static str,
@@ -64,6 +66,7 @@ impl Display for Error {
             Error::InvalidImageType(value) => write!(f, "Invalid image type: {value}"),
             Error::InvalidClutType(value) => write!(f, "Invalid CLUT type: {value}"),
             Error::InvalidFormatId(value) => write!(f, "Invalid format ID: {value}"),
+            Error::InvalidMipmapCount(value) => write!(f, "Invalid mipmap count: {value}"),
             Error::TypeConversion { from, to, value } => write!(f, "Cannot convert this {from} to {to}: {:?}", value),
             Error::NoClutForIndexedImage => write!(f, "Cannot process an indexed image without a CLUT"),
             Error::InvalidImageParams => write!(f, "Invalid image parameters"),

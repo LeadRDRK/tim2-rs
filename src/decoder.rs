@@ -54,7 +54,7 @@ impl<R: Read + Seek> Decoder<R> {
         }
 
         self.reader.seek(SeekFrom::Start(self.next_picture_offset))?;
-        let picture = PictureDecoder::from_reader(self.reader.by_ref(), self.info.alignment() as _)?;
+        let picture = PictureDecoder::from_reader(self.reader.by_ref())?;
 
         self.next_picture_offset += picture.header.total_size.get() as u64;
         self.pictures_read += 1;
@@ -73,12 +73,16 @@ pub struct PictureDecoder<R> {
 }
 
 impl<R: Read + Seek> PictureDecoder<R> {
-    /// Create a picture decoder from a reader with the specified bytes alignment.
-    pub fn from_reader(mut reader: R, alignment: usize) -> Result<Self, Error> {
+    /// Create a picture decoder from a reader.
+    pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         let mut header = [0u8; size_of::<PictureHeader>()];
         reader.read_exact(&mut header)?;
 
         let header: PictureHeader = transmute!(header);
+        let mipmap_header_size = MIPMAP_HEADER_SIZES.get(header.mipmap_count as usize)
+            .copied()
+            .ok_or_else(|| Error::InvalidMipmapCount(header.mipmap_count))?;
+
         let header_size = header.header_size.get();
         let mut mipmap_info = None;
         let mut mipmap_sizes = vec![0u32; header.mipmap_count as _];
@@ -86,11 +90,9 @@ impl<R: Read + Seek> PictureDecoder<R> {
         if header_size > size_of::<PictureHeader>() as u16 {
             let mut current_offset = size_of::<PictureHeader>();
 
-            if header.mipmap_count > 1 {
-                let buffer_len = (size_of::<MipmapHeader>() + mipmap_sizes.len() * size_of::<u32>())
-                    .next_multiple_of(alignment);
-                let mut buffer = vec![0u8; buffer_len];
-                reader.read_exact(&mut buffer)?;
+            if mipmap_header_size != 0 {
+                let mut buffer = [0u8; 48]; // header size is never larger than 48
+                reader.read_exact(&mut buffer[..mipmap_header_size])?;
 
                 let (header_buffer, sizes_buffer) = buffer.split_at(size_of::<MipmapHeader>());
                 let header_buffer: [u8; size_of::<MipmapHeader>()] = header_buffer.try_into().unwrap();
@@ -98,17 +100,16 @@ impl<R: Read + Seek> PictureDecoder<R> {
                 mipmap_info = Some(mipmap_header.to_mipmap_info());
 
                 for (i, size) in mipmap_sizes.iter_mut().enumerate() {
-                    let start = i * size_of::<u32>();
-                    let end = start + size_of::<u32>();
-                    *size = u32::from_le_bytes(sizes_buffer[start..end].try_into().unwrap());
+                    let offset = i * 4;
+                    *size = u32::from_le_bytes(sizes_buffer[offset..offset + 4].try_into().unwrap());
                 }
 
-                current_offset += buffer_len;
+                current_offset += mipmap_header_size;
             }
 
-            // anything else after this is userdata(?)
+            // anything else after this is userdata
             let user_data_size = (header_size as usize).saturating_sub(current_offset);
-            if user_data_size > 0 {
+            if user_data_size != 0 {
                 user_data = vec![0u8; user_data_size];
                 reader.read_exact(&mut user_data)?;
             }
