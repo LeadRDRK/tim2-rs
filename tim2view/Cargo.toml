@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/LeadRDRK/tim2-rs"
 
 [dependencies]
-tim2-rs = { path = ".." }
+tim2-rs = { version = "0.1", path = ".." }
 minifb = "0.29"
 anyhow = "1.0"
 rfd = "0.18"
