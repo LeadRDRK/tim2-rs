@@ -658,6 +658,14 @@ impl Color {
         }
     }
 
+    pub const fn as_bytes(&self) -> &[u8] {
+        match self {
+            Color::Rgb16(bytes) => bytes,
+            Color::Rgb24(bytes) => bytes,
+            Color::Rgb32(bytes) => bytes
+        }
+    }
+
     /// Convert this color to 8-bit RGBA.
     /// 
     /// **Note:** The resulting color keeps the alpha value as-is for Rgb32, and uses 128 (0x80)
@@ -691,6 +699,11 @@ impl Color {
         }
 
         let rgba = self.to_rgba();
+        Self::from_rgba(rgba, format)
+    }
+
+    /// Create a color from RGBA values, converted to the specified format.
+    pub const fn from_rgba(rgba: [u8; 4], format: ColorFormat) -> Self {
         match format {
             ColorFormat::Rgb16 => {
                 #[inline]
