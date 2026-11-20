@@ -88,8 +88,10 @@ impl<R: Read + Seek> PictureDecoder<R> {
             .ok_or_else(|| Error::InvalidData("header size is too small"))?;
 
         // read mipmap header
-        let mut mipmap_sizes = if header.mipmap_count == 1 {
-            vec![header.image_data_size.get()]
+        // supports nonstandard format with no mipmaps but non-zero image data size
+        let image_data_size = header.image_data_size.get();
+        let mut mipmap_sizes = if header.mipmap_count == 1 || (header.mipmap_count == 0 && image_data_size != 0) {
+            vec![image_data_size]
         }
         else {
             vec![0u32; header.mipmap_count as _]
