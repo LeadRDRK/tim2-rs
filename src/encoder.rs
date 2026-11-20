@@ -2,12 +2,17 @@ use std::io::Write;
 
 use zerocopy::IntoBytes;
 
-use crate::{Error, Info, Picture, internal::{Header, PictureHeader}};
+use crate::{Error, Info, Picture, internal::*};
 
 const ZEROS: [u8; 128] = [0u8; 128];
 fn padding(size: usize, alignment: u8) -> &'static [u8] {
     let alignment = alignment as usize;
     &ZEROS[..0usize.wrapping_sub(size) & (alignment - 1)]
+}
+
+fn aligned_size(size: usize, alignment: u8) -> Option<usize> {
+    let alignment = alignment as usize;
+    Some((size.checked_add(alignment)? - 1) & !(alignment - 1))
 }
 
 /// TIM2 encoder.
@@ -48,13 +53,22 @@ impl<W: Write> Encoder<W> {
             return Err(Error::EofExpected);
         }
 
-        let info = picture.info();
-        let orig_header_size = size_of::<PictureHeader>() + picture.user_data().len();
+        let metadata = picture.metadata();
 
-        let (header_size, header_padding) = self.aligned_size_and_padding::<u16>(orig_header_size)
+        let mipmap_count = picture.mipmap_count();
+        let mipmap_header_size = MIPMAP_HEADER_SIZES[mipmap_count as usize];
+        let header_size = size_of::<PictureHeader>() + mipmap_header_size + metadata.user_data.len();
+        let (header_size, header_padding) = self.aligned_size_and_padding::<u16>(header_size)
             .ok_or_else(|| Error::InvalidData("user data too large"))?;
 
-        let (image_data_size, image_data_padding) = self.aligned_size_and_padding(picture.image_data().len())
+        let mut mipmap_sizes = [0usize; 7];
+        let mut image_data_size = 0usize;
+        for (mipmap, size) in picture.mipmaps().iter().zip(mipmap_sizes.iter_mut()) {
+            *size = aligned_size(mipmap.len(), 16) // always aligned to 16 bytes
+                .ok_or_else(|| Error::InvalidData("image data too large"))?;
+            image_data_size += *size;
+        }
+        let (image_data_size, image_data_padding) = self.aligned_size_and_padding(image_data_size)
             .ok_or_else(|| Error::InvalidData("image data too large"))?;
 
         let (clut_size, clut_padding) = self.aligned_size_and_padding(picture.clut_data().len())
@@ -65,7 +79,8 @@ impl<W: Write> Encoder<W> {
             .and_then(|size| size.checked_add(clut_size))
             .ok_or_else(|| Error::InvalidData("total picture size exceeds u32 limit"))?;
 
-        let clut_color_count: u16 = picture.clut_color_count().try_into()?;
+        let clut_color_count: u16 = picture.clut_color_count().try_into()
+            .map_err(|_| Error::InvalidData("number of CLUT elements exceeds u16 limit"))?;
 
         let header = PictureHeader {
             total_size: total_size.into(),
@@ -73,23 +88,42 @@ impl<W: Write> Encoder<W> {
             image_data_size: image_data_size.into(),
             header_size: header_size.into(),
             clut_color_count: clut_color_count.into(),
-            picture_format: info.picture_format,
-            mipmap_count: info.mipmap_count,
-            clut_type: info.clut_type.bits(),
-            image_type: info.image_type as _,
-            image_width: info.image_width.into(),
-            image_height: info.image_height.into(),
-            gs_tex0: info.gs_tex0.into(),
-            gs_tex1: info.gs_tex1.into(),
-            gs_texafbapabe: info.gs_texafbapabe.into(),
-            gs_texclut: info.gs_texclut.into(),
+            picture_format: metadata.picture_format,
+            mipmap_count,
+            clut_type: metadata.clut_type.bits(),
+            image_type: metadata.image_type as _,
+            image_width: metadata.image_width.into(),
+            image_height: metadata.image_height.into(),
+            gs_tex0: metadata.gs_tex0.into(),
+            gs_tex1: metadata.gs_tex1.into(),
+            gs_texafbapabe: metadata.gs_texafbapabe.into(),
+            gs_texclut: metadata.gs_texclut.into(),
         };
 
         self.writer.write_all(header.as_bytes())?;
-        self.writer.write_all(picture.user_data())?;
+        if mipmap_header_size != 0 {
+            let mut buffer = [0u8; 48]; // mipmap header size is never larger than 48
+            {
+                let (header_buffer, sizes_buffer) = buffer.split_at_mut(size_of::<MipmapHeader>());
+                let header = metadata.mipmap_info.as_ref()
+                    .map(MipmapHeader::from_mipmap_info)
+                    .ok_or_else(|| Error::NoMipmapInfo)?;
+                header_buffer.copy_from_slice(header.as_bytes());
+
+                for (i, chunk) in picture.mipmaps().iter().enumerate() {
+                    let offset = i * 4;
+                    sizes_buffer[offset..offset + 4].copy_from_slice(&(chunk.len() as u32).to_le_bytes());
+                }
+            }
+            self.writer.write_all(&buffer[..mipmap_header_size])?;
+        }
+        self.writer.write_all(&metadata.user_data)?;
         self.writer.write_all(header_padding)?;
 
-        self.writer.write_all(picture.image_data())?;
+        for (mipmap, size) in picture.mipmaps().iter().zip(mipmap_sizes.into_iter()) {
+            self.writer.write_all(&mipmap)?;
+            self.writer.write_all(&ZEROS[..size - mipmap.len()])?; // per-mipmap alignment
+        }
         self.writer.write_all(image_data_padding)?;
 
         self.writer.write_all(picture.clut_data())?;
@@ -99,9 +133,15 @@ impl<W: Write> Encoder<W> {
         Ok(())
     }
 
+    fn aligned_size<T: TryFrom<usize>>(&self, size: usize) -> Option<T> {
+        aligned_size(size, self.alignment)
+            .and_then(|aligned| aligned.try_into().ok())
+    }
+
     fn aligned_size_and_padding<T: TryFrom<usize>>(&self, size: usize) -> Option<(T, &'static [u8])> {
-        let alignment = self.alignment as usize;
-        let aligned = (size.checked_add(alignment)? - 1) & !(alignment - 1);
-        Some((aligned.try_into().ok()?, &ZEROS[..aligned - size]))
+        self.aligned_size::<usize>(size)
+            .and_then(|aligned| Some(
+                (aligned.try_into().ok()?, &ZEROS[..aligned - size])
+            ))
     }
 }

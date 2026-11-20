@@ -2,6 +2,7 @@
 
 use std::{fs::File, io::{BufReader, IsTerminal}, path::{Path, PathBuf}};
 
+use anyhow::anyhow;
 use minifb::{Key, KeyRepeat, Menu, ScaleMode, Window, WindowOptions};
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageLevel};
 use tim2::*;
@@ -44,14 +45,13 @@ fn run(path: &Path, no_transparency_grid: bool) -> anyhow::Result<()> {
         let mut decoder = Decoder::from_reader(BufReader::new(file))?;
         let mut pictures = Vec::with_capacity(decoder.picture_count() as _);
 
-        while let Some(picture_decoder) = decoder.next_picture()? {
-            let picture = picture_decoder.decode()?;
-            let info = picture.info();
-            let width = info.image_width;
-            let height = info.image_height;
-            let image_type = info.image_type;
+        while let Some(picture) = decoder.next_picture()? {
+            let metadata = picture.metadata();
+            let width = metadata.image_width;
+            let height = metadata.image_height;
+            let image_type = metadata.image_type;
 
-            let image_reader = picture.image_reader(None)?;
+            let image_reader = picture.image_reader(0, None).ok_or_else(|| anyhow!("No image data"))??;
             let rgba_u8 = image_reader.read_to_rgba()?;
 
             let mut xrgb: Vec<u32> = Vec::with_capacity(image_reader.pixel_count());

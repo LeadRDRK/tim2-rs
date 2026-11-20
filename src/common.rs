@@ -200,13 +200,12 @@ impl TryFrom<u8> for ImageType {
     }
 }
 
-/// Picture info. Derived from the picture header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Picture metadata. Derived from the picture header.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct PictureInfo {
+pub struct PictureMetadata {
     /// Should always be 0.
     pub picture_format: u8,
-    pub mipmap_count: u8,
     pub clut_type: ClutType,
     pub image_type: ImageType,
     pub image_width: u16,
@@ -218,16 +217,18 @@ pub struct PictureInfo {
     /// GS TEXAFBAPABE registers data.
     pub gs_texafbapabe: u32,
     /// GS TEXCLUT register data.
-    pub gs_texclut: u32
+    pub gs_texclut: u32,
+    pub mipmap_info: Option<MipmapInfo>,
+    /// Raw trailing data right after the header.
+    pub user_data: Vec<u8>
 }
 
-/// TIM2 picture. A single TIM2 file may contain multiple pictures.
+/// TIM2 picture.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Picture {
-    info: PictureInfo,
-    user_data: Vec<u8>,
-    image_data: Vec<u8>,
+    metadata: PictureMetadata,
+    mipmaps: Vec<Vec<u8>>,
     clut_data: Vec<u8>,
     clut_len: usize
 }
@@ -241,21 +242,29 @@ impl Picture {
     /// The image data and CLUT data length will be validated against the image type, image size,
     /// CLUT type and CLUT color count. The data is considered valid if it's large enough.
     /// Trailing data is ignored and will be kept as-is.
+    /// Additionally, there must not be more than 7 mipmaps, including the base image.
     pub fn new(
-        info: PictureInfo,
-        user_data: Vec<u8>,
-        image_data: Vec<u8>,
+        metadata: PictureMetadata,
+        mipmaps: Vec<Vec<u8>>,
         clut_data: Vec<u8>,
         clut_color_count: u16
     ) -> Result<Self, Error> {
-        let image_pixels = info.image_width as usize * info.image_height as usize;
-        let image_data_len = info.image_type.bytes_per_n_pixels(image_pixels);
-        if image_data.len() < image_data_len {
-            return Err(Error::InvalidData("insufficient image data length"));
+        if mipmaps.len() > 7 {
+            return Err(Error::InvalidData("more than 7 mipmaps"));
         }
 
-        let clut_len = if info.clut_type != ClutType::NONE {
-            let clut_bytes_per_element = info.clut_type.bytes_per_element()
+        let base_width = metadata.image_width as usize;
+        let base_height = metadata.image_height as usize;
+        for (i, data) in mipmaps.iter().enumerate() {
+            let image_pixels = (base_width >> i) * (base_height >> i);
+            let image_data_len = metadata.image_type.bytes_per_n_pixels(image_pixels);
+            if data.len() < image_data_len {
+                return Err(Error::InvalidData("insufficient image data length"));
+            }
+        }
+
+        let clut_len = if metadata.clut_type != ClutType::NONE {
+            let clut_bytes_per_element = metadata.clut_type.bytes_per_element()
                 .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
 
             // OK: this will still allow empty clut data when there's a clut type
@@ -270,26 +279,29 @@ impl Picture {
         };
 
         Ok(Self {
-            info,
-            user_data,
-            image_data,
+            metadata,
+            mipmaps,
             clut_data,
             clut_len
         })
     }
 
-    pub const fn info(&self) -> PictureInfo {
-        self.info
+    pub const fn metadata(&self) -> &PictureMetadata {
+        &self.metadata
     }
 
-    /// Raw user data. May contain an extended header.
-    pub fn user_data(&self) -> &[u8] {
-        &self.user_data
+    /// Raw mipmaps data.
+    pub fn mipmaps(&self) -> &[Vec<u8>] {
+        &self.mipmaps
     }
 
-    /// Raw image data.
-    pub fn image_data(&self) -> &[u8] {
-        &self.image_data
+    pub fn mipmap_count(&self) -> u8 {
+        self.mipmaps.len() as _
+    }
+
+    /// Get the raw image data for the specified mipmap level.
+    pub fn image_data(&self, mipmap: u8) -> Option<&[u8]> {
+        self.mipmaps.get(mipmap as usize).map(|v| &**v)
     }
 
     /// Get the CLUT at the specified index.
@@ -299,7 +311,7 @@ impl Picture {
         let offset = index * self.clut_len;
         self.clut_data
             .get(offset..offset + self.clut_len)
-            .map(|data| Clut::new_borrowed(data, self.info.clut_type))
+            .map(|data| Clut::new_borrowed(data, self.metadata.clut_type))
     }
 
     /// Get an iterator of all the CLUTs in this picture.
@@ -307,7 +319,7 @@ impl Picture {
         std::iter::once(&self.clut_data)
             .filter(|_| self.clut_len != 0)
             .flat_map(|slice| slice.chunks_exact(self.clut_len))
-            .map(|data| Clut::new_borrowed(data, self.info.clut_type))
+            .map(|data| Clut::new_borrowed(data, self.metadata.clut_type))
     }
 
     /// Raw CLUT data.
@@ -326,7 +338,7 @@ impl Picture {
 
     /// Number of colors in the CLUTs.
     pub const fn clut_color_count(&self) -> usize {
-        if let Some(bytes_per_element) = self.info.clut_type.bytes_per_element() {
+        if let Some(bytes_per_element) = self.metadata.clut_type.bytes_per_element() {
             self.clut_len / bytes_per_element
         }
         else {
@@ -334,34 +346,21 @@ impl Picture {
         }
     }
 
-    /// Get an image reader for this picture's image.
+    /// Get an image reader for this picture's image at the specified mipmap level,
+    /// with mipmap level 0 being the base image.
     /// 
-    /// If the image is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
+    /// If the image type is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
     /// has one. Otherwise, [`Error::NoClutForIndexedImage`] will be returned.
     /// 
     /// If the image uses direct colors, `clut` is ignored. As a default, using `None` will work for
     /// all valid pictures.
-    pub fn image_reader<'a, 'b: 'a>(&'b self, clut: impl Into<Option<Clut<'a>>>) -> Result<ImageReader<'a, 'b>, Error> {
-        let image_type = self.info.image_type;
-        Ok(ImageReader {
-            width: self.info.image_width,
-            height: self.info.image_height,
-            pixel_reader: match image_type {
-                ImageType::Rgb16 | ImageType::Rgb24 | ImageType::Rgb32 => {
-                    PixelReader::Direct(image_type.try_into().unwrap()) // always succeeds
-                },
-
-                ImageType::IdTex4 | ImageType::IdTex8 => {
-                    PixelReader::Indexed {
-                        four_bits: image_type == ImageType::IdTex4,
-                        clut: clut.into()
-                            .or_else(|| self.clut(0))
-                            .ok_or_else(|| Error::NoClutForIndexedImage)?
-                    }
-                },
-            },
-            image_data: &self.image_data
-        })
+    pub fn image_reader<'a, 'b: 'a>(
+        &'b self,
+        mipmap: u8,
+        clut: impl Into<Option<Clut<'a>>>
+    ) -> Option<Result<ImageReader<'a, 'b>, Error>> {
+        self.mipmaps.get(mipmap as usize)
+            .map(|image_data| ImageReader::from_picture(self, clut, mipmap, image_data))
     }
 }
 
@@ -382,6 +381,42 @@ impl<'a, 'b> ImageReader<'a, 'b> {
         image_data: &'b [u8]
     ) -> Self {
         Self { width, height, pixel_reader, image_data }
+    }
+
+    /// Create a new image reader with parameters derived from the picture. The mipmap level will determine
+    /// the image's width and height.
+    /// 
+    /// If the image type is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
+    /// has one. Otherwise, [`Error::NoClutForIndexedImage`] will be returned.
+    /// 
+    /// If the image uses direct colors, `clut` is ignored. As a default, using `None` will work for
+    /// all valid pictures.
+    pub fn from_picture(
+        picture: &'a Picture,
+        clut: impl Into<Option<Clut<'a>>>,
+        mipmap_level: u8,
+        image_data: &'b [u8]
+    ) -> Result<Self, Error> {
+        let image_type = picture.metadata.image_type;
+        Ok(ImageReader {
+            width: picture.metadata.image_width >> mipmap_level,
+            height: picture.metadata.image_height >> mipmap_level,
+            pixel_reader: match image_type {
+                ImageType::Rgb16 | ImageType::Rgb24 | ImageType::Rgb32 => {
+                    PixelReader::Direct(image_type.try_into().unwrap()) // always succeeds
+                },
+
+                ImageType::IdTex4 | ImageType::IdTex8 => {
+                    PixelReader::Indexed {
+                        four_bits: image_type == ImageType::IdTex4,
+                        clut: clut.into()
+                            .or_else(|| picture.clut(0))
+                            .ok_or_else(|| Error::NoClutForIndexedImage)?
+                    }
+                },
+            },
+            image_data
+        })
     }
 
     pub const fn width(&self) -> u16 {

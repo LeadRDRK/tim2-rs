@@ -1,4 +1,4 @@
-use std::{fmt::{Debug, Display}, num::TryFromIntError};
+use std::fmt::{Debug, Display};
 
 #[derive(Debug)]
 pub enum Error {
@@ -32,7 +32,8 @@ pub enum Error {
     InvalidImageParams,
     /// Attempted to write past the "end of file".
     EofExpected,
-    TryFromIntError(TryFromIntError)
+    /// No mipmap info for picture with more than one mipmap.
+    NoMipmapInfo
 }
 
 impl Error {
@@ -71,7 +72,7 @@ impl Display for Error {
             Error::NoClutForIndexedImage => write!(f, "Cannot process an indexed image without a CLUT"),
             Error::InvalidImageParams => write!(f, "Invalid image parameters"),
             Error::EofExpected => write!(f, "EOF expected"),
-            Error::TryFromIntError(error) => Display::fmt(&error, f),
+            Error::NoMipmapInfo => write!(f, "No mipmap info for picture with more than one mipmap"),
         }
     }
 }
@@ -81,11 +82,5 @@ impl std::error::Error for Error {}
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::IoError(value)
-    }
-}
-
-impl From<TryFromIntError> for Error {
-    fn from(value: TryFromIntError) -> Self {
-        Self::TryFromIntError(value)
     }
 }

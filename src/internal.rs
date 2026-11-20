@@ -2,7 +2,7 @@
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, little_endian::*};
 
-use crate::{Error, Info, MipmapInfo, PictureInfo};
+use crate::{Error, Info, MipmapInfo};
 
 pub const TIM2_MAGIC: [u8; 4] = *b"TIM2";
 pub const CLUT2_MAGIC: [u8; 4] = *b"CLT2";
@@ -79,25 +79,6 @@ pub struct PictureHeader {
     pub gs_tex1: U64,
     pub gs_texafbapabe: U32,
     pub gs_texclut: U32
-}
-
-impl TryInto<PictureInfo> for PictureHeader {
-    type Error = Error;
-
-    fn try_into(self) -> Result<PictureInfo, Self::Error> {
-        Ok(PictureInfo {
-            picture_format: self.picture_format,
-            mipmap_count: self.mipmap_count,
-            clut_type: self.clut_type.try_into()?,
-            image_type: self.image_type.try_into()?,
-            image_width: self.image_width.get(),
-            image_height: self.image_height.get(),
-            gs_tex0: self.gs_tex0.get(),
-            gs_tex1: self.gs_tex1.get(),
-            gs_texafbapabe: self.gs_texafbapabe.get(),
-            gs_texclut: self.gs_texclut.get()
-        })
-    }
 }
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy)]

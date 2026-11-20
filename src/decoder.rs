@@ -2,7 +2,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 use zerocopy::transmute;
 
-use crate::{Error, Info, MipmapInfo, Picture, PictureInfo, internal::*};
+use crate::{Error, Info, MipmapInfo, Picture, PictureMetadata, internal::*};
 
 /// TIM2 decoder.
 pub struct Decoder<R> {
@@ -48,23 +48,24 @@ impl<R: Read + Seek> Decoder<R> {
     /// Read the next picture.
     /// 
     /// Returns `Ok(None)` if there are no more pictures to be read.
-    pub fn next_picture(&mut self) -> Result<Option<PictureDecoder<&mut R>>, Error> {
+    pub fn next_picture(&mut self) -> Result<Option<Picture>, Error> {
         if self.pictures_read == self.info.picture_count {
             return Ok(None);
         }
 
         self.reader.seek(SeekFrom::Start(self.next_picture_offset))?;
-        let picture = PictureDecoder::from_reader(self.reader.by_ref())?;
+        let decoder = PictureDecoder::from_reader(self.reader.by_ref())?;
+        let total_size = decoder.total_size();
+        let picture = decoder.decode()?;
 
-        self.next_picture_offset += picture.header.total_size.get() as u64;
+        self.next_picture_offset += total_size as u64;
         self.pictures_read += 1;
 
         Ok(Some(picture))
     }
 }
 
-/// TIM2 picture decoder.
-pub struct PictureDecoder<R> {
+struct PictureDecoder<R> {
     reader: R,
     header: PictureHeader,
     mipmap_info: Option<MipmapInfo>,
@@ -73,47 +74,54 @@ pub struct PictureDecoder<R> {
 }
 
 impl<R: Read + Seek> PictureDecoder<R> {
-    /// Create a picture decoder from a reader.
     pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         let mut header = [0u8; size_of::<PictureHeader>()];
         reader.read_exact(&mut header)?;
 
+        // read header
         let header: PictureHeader = transmute!(header);
+        let header_size = header.header_size.get();
         let mipmap_header_size = MIPMAP_HEADER_SIZES.get(header.mipmap_count as usize)
             .copied()
             .ok_or_else(|| Error::InvalidMipmapCount(header.mipmap_count))?;
+        let user_data_size = header_size.checked_sub(size_of::<PictureHeader>() as u16 + mipmap_header_size as u16)
+            .ok_or_else(|| Error::InvalidData("header size is too small"))?;
 
-        let header_size = header.header_size.get();
-        let mut mipmap_info = None;
-        let mut mipmap_sizes = vec![0u32; header.mipmap_count as _];
-        let mut user_data = Vec::new();
-        if header_size > size_of::<PictureHeader>() as u16 {
-            let mut current_offset = size_of::<PictureHeader>();
-
-            if mipmap_header_size != 0 {
-                let mut buffer = [0u8; 48]; // header size is never larger than 48
-                reader.read_exact(&mut buffer[..mipmap_header_size])?;
-
-                let (header_buffer, sizes_buffer) = buffer.split_at(size_of::<MipmapHeader>());
-                let header_buffer: [u8; size_of::<MipmapHeader>()] = header_buffer.try_into().unwrap();
-                let mipmap_header: MipmapHeader = transmute!(header_buffer);
-                mipmap_info = Some(mipmap_header.to_mipmap_info());
-
-                for (i, size) in mipmap_sizes.iter_mut().enumerate() {
-                    let offset = i * 4;
-                    *size = u32::from_le_bytes(sizes_buffer[offset..offset + 4].try_into().unwrap());
-                }
-
-                current_offset += mipmap_header_size;
-            }
-
-            // anything else after this is userdata
-            let user_data_size = (header_size as usize).saturating_sub(current_offset);
-            if user_data_size != 0 {
-                user_data = vec![0u8; user_data_size];
-                reader.read_exact(&mut user_data)?;
-            }
+        // read mipmap header
+        let mut mipmap_sizes = if header.mipmap_count == 1 {
+            vec![header.image_data_size.get()]
         }
+        else {
+            vec![0u32; header.mipmap_count as _]
+        };
+        let mipmap_info = if mipmap_header_size != 0 {
+            let mut buffer = [0u8; 48]; // mipmap header size is never larger than 48
+            reader.read_exact(&mut buffer[..mipmap_header_size])?;
+
+            let (header_buffer, sizes_buffer) = buffer.split_at(size_of::<MipmapHeader>());
+            let header_buffer: [u8; size_of::<MipmapHeader>()] = header_buffer.try_into().unwrap();
+            let mipmap_header: MipmapHeader = transmute!(header_buffer);
+
+            for (i, size) in mipmap_sizes.iter_mut().enumerate() {
+                let offset = i * 4;
+                *size = u32::from_le_bytes(sizes_buffer[offset..offset + 4].try_into().unwrap());
+            }
+
+            Some(mipmap_header.to_mipmap_info())
+        }
+        else {
+            None
+        };
+
+        // read user data
+        let user_data = if user_data_size != 0 {
+            let mut buffer = vec![0u8; user_data_size as _];
+            reader.read_exact(&mut buffer)?;
+            buffer
+        }
+        else {
+            Vec::new()
+        };
 
         Ok(Self {
             reader,
@@ -124,39 +132,41 @@ impl<R: Read + Seek> PictureDecoder<R> {
         })
     }
 
-    /// Info derived from the mipmap header.
-    /// 
-    /// Only present when the picture has more than one mipmap.
-    pub const fn mipmap_info(&self) -> Option<&MipmapInfo> {
-        self.mipmap_info.as_ref()
+    pub fn total_size(&self) -> u32 {
+        self.header.total_size.get()
     }
 
-    pub fn mipmap_sizes(&self) -> &[u32] {
-        &self.mipmap_sizes
-    }
-
-    pub fn user_data(&self) -> &[u8] {
-        &self.user_data
-    }
-
-    /// Decode the picture.
-    /// 
-    /// **Note:** Mipmapped images are not supported yet. [`Error::Unimplemented`] will be returned
-    /// when attempting to decode pictures with more than one mipmap.
     pub fn decode(mut self) -> Result<Picture, Error> {
-        if self.header.mipmap_count > 1 {
-            return Err(Error::Unimplemented("decoding mipmapped images"));
+        let header = self.header;
+        if self.mipmap_sizes.iter().sum::<u32>() > header.image_data_size.get() {
+            return Err(Error::InvalidData("sum of mipmap sizes larger than image data size"));
         }
 
-        let mut image_data = vec![0u8; self.header.image_data_size.get() as _];
-        self.reader.read_exact(&mut image_data)?;
+        let mut mipmaps = self.mipmap_sizes.into_iter()
+            .map(|size| vec![0u8; size as _])
+            .collect::<Vec<_>>();
+        for image_data in mipmaps.iter_mut() {
+            self.reader.read_exact(image_data)?;
+        }
 
-        let mut clut_data = vec![0u8; self.header.clut_size.get() as _];
+        let mut clut_data = vec![0u8; header.clut_size.get() as _];
         self.reader.read_exact(&mut clut_data)?;
 
-        let clut_color_count = self.header.clut_color_count.get();
-        let info: PictureInfo = self.header.try_into()?;
+        let clut_color_count = header.clut_color_count.get();
+        let metadata = PictureMetadata {
+            picture_format: header.picture_format,
+            clut_type: header.clut_type.try_into()?,
+            image_type: header.image_type.try_into()?,
+            image_width: header.image_width.get(),
+            image_height: header.image_height.get(),
+            gs_tex0: header.gs_tex0.get(),
+            gs_tex1: header.gs_tex1.get(),
+            gs_texafbapabe: header.gs_texafbapabe.get(),
+            gs_texclut: header.gs_texclut.get(),
+            mipmap_info: self.mipmap_info.into(),
+            user_data: self.user_data,
+        };
 
-        Picture::new(info, self.user_data, image_data, clut_data, clut_color_count)
+        Picture::new(metadata, mipmaps, clut_data, clut_color_count)
     }
 }
