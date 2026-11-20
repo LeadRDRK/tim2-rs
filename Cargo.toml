@@ -2,9 +2,11 @@
 name = "tim2-rs"
 version = "0.1.0"
 edition = "2024"
-description = "TIM2 texture decoding and encoding library"
+description = "TIM2 image decoding and encoding library"
 license = "MIT"
 repository = "https://github.com/LeadRDRK/tim2-rs"
+categories = ["multimedia::images"]
+keywords = ["ps2", "texture", "decoder", "encoder", "codec"]
 
 [lib]
 name = "tim2"

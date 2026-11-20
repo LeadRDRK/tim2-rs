@@ -1,5 +1,5 @@
 # tim2-rs
-TIM2 texture decoding and encoding library written in Rust.
+Rust decoding and encoding library for TIM2, an image format that was widely used on the PlayStation 2 for storing texture images.
 
 ## Features
 - Based on the official format specifications.
@@ -46,7 +46,7 @@ for picture in pictures.iter() {
 ```
 
 ## Demo
-You can test the library's decoding capabilities using [tim2view](tim2view), a simple TIM2 texture viewer built using tim2-rs. Prebuilt binaries are available on the [Releases page](https://github.com/LeadRDRK/tim2-rs/releases), or you could install it using cargo.
+You can test the library's decoding capabilities using [tim2view](tim2view), a simple TIM2 image viewer built using tim2-rs. Prebuilt binaries are available on the [Releases page](https://github.com/LeadRDRK/tim2-rs/releases), or you could install it using cargo.
 
 Also check out [tim2conv](https://github.com/LeadRDRK/tim2conv), a command line tool for converting/creating TIM2 files.
 
