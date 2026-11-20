@@ -252,7 +252,8 @@ Options:
     -b, --no-transparency-grid  Disable the checkerboard background for transparent images
     -m, --mipmap <LEVEL>        Mipmap level (default: 0)
     -c, --clut <INDEX>          CLUT index
-    -p, --print-info            Print the TIM2 info and pictures metadata to stdout",
+    -p, --print-info            Print the TIM2 info and pictures metadata to stdout
+    -f, --file-picker           Open the file picker if there is no file argument",
     
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
@@ -267,6 +268,7 @@ fn main() {
     let mut mipmap = 0;
     let mut clut = None;
     let mut print_info = false;
+    let mut open_file_picker = !std::io::stdout().is_terminal();
     let mut args_iter = std::env::args().skip(1);
     while let Some(arg) = args_iter.next() {
         match arg.as_str() {
@@ -294,6 +296,7 @@ fn main() {
                     }));
             },
             "-p" | "--print-info" => print_info = true,
+            "-f" | "--file-picker" => open_file_picker = true,
 
             _ => {
                 if path_opt.is_none() {
@@ -308,13 +311,12 @@ fn main() {
         }
     }
 
-    if !std::io::stdout().is_terminal() {
-        // open a file picker if program wasn't launched from the terminal and there is no file argument
+    if open_file_picker {
         path_opt = path_opt
             .or_else(|| {
                 FileDialog::new()
                     .set_title(format!("Open File - {}", env!("CARGO_PKG_NAME")))
-                    .add_filter("TIM2 texture", &["tm2"])
+                    .add_filter("TIM2", &["tm2", "tim2"])
                     .pick_file()
             });
     }
