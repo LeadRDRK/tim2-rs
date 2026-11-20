@@ -1,16 +1,18 @@
 # tim2-rs
 TIM2 texture decoding and encoding library written in Rust.
 
-# Features
-- Nearly full support for the TIM2 format (on par with [Rainbow](https://github.com/marco-calautti/Rainbow)) and CLT2 (CLUT only).
+## Features
+- Based on the official format specifications.
+- Full support for the TIM2 and CLUT2 format:
+    - RGB16/24/32 and 4/8-bit indexed images.
+    - RGB16/24/32 CLUTs (palettes), with or without swizzling.
+    - Mipmaps*
+    - 16/128 bytes alignment.
 - Serde support for serializing metadata with the `serde` feature.
 
-# TODO
-- Support for mipmapped images.
+(*) Mipmap support relies on some assumptions made about the mipmap sizes and has not been properly tested, due to a lack of samples. Please let me know if you've had any success with mipmapped TIM2 files when using this library.
 
-Help needed! If you have a TIM2 file with mipmaps, please create an issue on GitHub with the file attached so I can take a look at it.
-
-# Example
+## Example
 - Decoding
 ```rs
 use tim2::Decoder;
@@ -18,20 +20,20 @@ use tim2::Decoder;
 let file = File::open(path)?;
 let mut decoder = Decoder::from_reader(BufReader::new(file))?;
 
-while let Some(picture_decoder) = decoder.next_picture()? {
-    let picture = picture_decoder.decode()?;
+while let Some(picture) = decoder.next_picture()? {
     // do something with the picture...
 }
 ```
 
 - Encoding
 ```rs
-use tim2::{Encoder, Picture, Info};
+use tim2::{Encoder, Picture, Info, FormatId};
 
 let pictures: Vec<Picture>;
 let info = Info {
-    version: 4,
-    format: 1, // 128-byte alignment
+    is_clut2: false,
+    format_version: 4,
+    format_id: FormatId::Align128,
     picture_count: pictures.len() as u16
 };
 
@@ -43,17 +45,10 @@ for picture in pictures.iter() {
 }
 ```
 
-# Demo
-You can test the library's decoding capability using [tim2view](tim2view), a simple TIM2 texture viewer built using tim2-rs. Prebuilt binaries are available on the [Releases page](https://github.com/LeadRDRK/tim2-rs/releases), or you could install it using cargo.
+## Demo
+You can test the library's decoding capabilities using [tim2view](tim2view), a simple TIM2 texture viewer built using tim2-rs. Prebuilt binaries are available on the [Releases page](https://github.com/LeadRDRK/tim2-rs/releases), or you could install it using cargo.
 
-Also check out [tim2conv](https://github.com/LeadRDRK/tim2conv), a command line tool for converting TIM2 files.
+Also check out [tim2conv](https://github.com/LeadRDRK/tim2conv), a command line tool for converting/creating TIM2 files.
 
-# References
-tim2-rs was written based on the following resources:
-
-- ["TM2 TIM2 Image" on Reverse Engineering Wiki](https://rewiki.miraheze.org/wiki/TM2_TIM2_Image)
-- [TIM2 binary template by Bartłomiej Duda](https://github.com/bartlomiejduda/Tools/blob/master/Binary%20Templates/TIM2_TM2_PS2_Image_binary_template.bt)
-- [Rainbow by Marco Calautti](https://github.com/marco-calautti/Rainbow)
-
-# License
+## License
 [MIT](LICENSE)
