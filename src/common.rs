@@ -308,18 +308,22 @@ impl Picture {
     pub fn clut(&self, index: usize) -> Option<Clut<'_>> {
         if self.clut_len == 0 { return None; }
 
+        let clut_type = self.metadata.clut_type;
+        let color_format: ColorFormat = clut_type.try_into().unwrap(); // should never panic if clut_len != 0
         let offset = index * self.clut_len;
         self.clut_data
             .get(offset..offset + self.clut_len)
-            .map(|data| Clut::new_borrowed(data, self.metadata.clut_type))
+            .map(|data| Clut::new_borrowed(data, color_format, clut_type.is_linear()))
     }
 
     /// Get an iterator of all the CLUTs in this picture.
     pub fn cluts(&self) -> impl Iterator<Item = Clut<'_>> {
+        let clut_type = self.metadata.clut_type;
+        let color_format: Option<ColorFormat> = clut_type.try_into().ok();
         std::iter::once(&self.clut_data)
             .filter(|_| self.clut_len != 0)
-            .flat_map(|slice| slice.chunks_exact(self.clut_len))
-            .map(|data| Clut::new_borrowed(data, self.metadata.clut_type))
+            .flat_map(|data| data.chunks_exact(self.clut_len))
+            .map(move |chunk| Clut::new_borrowed(chunk, color_format.unwrap(), clut_type.is_linear()))
     }
 
     /// Raw CLUT data.
@@ -528,26 +532,56 @@ impl<'a> PixelReader<'a> {
 
 /// Color lookup table (CLUT).
 /// 
-/// The data may be borrowed (from a Picture).
+/// The data is stored as a `Cow`, which means it may be borrowed. Any mutation will
+/// clone the data if it isn't already owned, therefore you cannot directly modify
+/// the CLUT obtained from a [`Picture`].
+/// 
+/// Mutable operations will always assume a linear order, regardless if the CLUT is linear or not.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Clut<'a> {
     data: Cow<'a, [u8]>,
-    clut_type: ClutType
+    color_format: ColorFormat,
+    is_linear: bool
 }
 
 impl<'a> Clut<'a> {
     /// Create a new CLUT from borrowed data.
-    pub const fn new_borrowed(data: &'a [u8], clut_type: ClutType) -> Self {
+    /// 
+    /// Data will be truncated to align with the color format's byte size.
+    pub fn new_borrowed(data: &'a [u8], color_format: ColorFormat, is_linear: bool) -> Self {
         Self {
-            data: Cow::Borrowed(data),
-            clut_type
+            data: Cow::Borrowed(&data[..data.len() - data.len() % color_format.size()]),
+            color_format,
+            is_linear
+        }
+    }
+
+    /// Create a new CLUT with owned data.
+    /// 
+    /// Data will be truncated to align with the color format's byte size.
+    pub fn new_owned(mut data: Vec<u8>, color_format: ColorFormat, is_linear: bool) -> Clut<'static> {
+        data.truncate(data.len() - data.len() % color_format.size());
+        Clut {
+            data: Cow::Owned(data),
+            color_format,
+            is_linear
         }
     }
 
     /// Create a new CLUT with data borrowed from this CLUT.
     pub fn to_borrowed(&'a self) -> Self {
-        Self::new_borrowed(&self.data, self.clut_type)
+        Self::new_borrowed(&self.data, self.color_format, self.is_linear)
+    }
+
+    /// Convert this to an owned CLUT by cloning data.
+    pub fn to_owned(&self) -> Clut<'static> {
+        Self::new_owned(self.data.to_vec(), self.color_format, self.is_linear)
+    }
+
+    /// Move the data to an owned CLUT. Clones the data if it is not already owned.
+    pub fn into_owned(self) -> Clut<'static> {
+        Self::new_owned(self.data.into_owned(), self.color_format, self.is_linear)
     }
 
     /// Raw CLUT data.
@@ -555,13 +589,26 @@ impl<'a> Clut<'a> {
         self.data.as_ref()
     }
 
-    pub const fn clut_type(&self) -> ClutType {
-        self.clut_type
+    /// Extracts the owned data.
+    ///
+    /// Clones the data if it is not already owned.
+    pub fn into_owned_data(self) -> Vec<u8> {
+        self.data.into_owned()
     }
 
-    /// Shorthand for `clut.clut_type().is_linear()`.
+    pub const fn color_format(&self) -> ColorFormat {
+        self.color_format
+    }
+
     pub const fn is_linear(&self) -> bool {
-        self.clut_type.is_linear()
+        self.is_linear
+    }
+
+    /// CLUT type for this CLUT's color format, with CSM flag.
+    pub const fn clut_type(&self) -> ClutType {
+        self.color_format.to_clut_type().union(
+            if self.is_linear() { ClutType::CSM2 } else { ClutType::NONE }
+        )
     }
 
     const fn swizzle_index(i: usize) -> usize {
@@ -578,62 +625,121 @@ impl<'a> Clut<'a> {
 
     /// Get the color at the exact index specified, no swizzling.
     pub fn get_exact(&self, i: usize) -> Option<Color> {
-        Color::from_pixel(&self.data, i, self.clut_type.try_into().ok()?)
+        Color::from_pixel(&self.data, i, self.color_format)
     }
 
     /// Number of colors in this CLUT.
-    /// 
-    /// Aside from empty data, this will also return 0 if the CLUT type is none or invalid.
     pub fn color_count(&self) -> usize {
-        if let Some(bytes_per_element) = self.clut_type.bytes_per_element() {
-            self.data.len() / bytes_per_element
-        }
-        else {
-            0
-        }
+        self.data.len() / self.color_format.size()
     }
 
     /// Get an iterator of all the colors in this CLUT.
     /// 
-    /// The order of the colors will always be linear, regardless if the CLUT is
-    /// swizzled or not.
+    /// The order of the colors will always be linear, regardless if the CLUT is linear or not.
     pub fn colors(&self) -> impl Iterator<Item = Color> {
         (0..self.color_count())
             .flat_map(|index| self.get_exact(index))
     }
-}
 
-impl Clut<'static> {
-    /// Create a new CLUT with owned data.
-    pub const fn new_owned(data: Vec<u8>, clut_type: ClutType) -> Self {
-        Self {
-            data: Cow::Owned(data),
-            clut_type
-        }
+    /// Appends a color to the end of a CLUT.
+    /// 
+    /// If the color's format does not match the CLUT's, it will be converted to the CLUT's color format.
+    /// 
+    /// Clones the data if it is not already owned.
+    /// 
+    /// ### Panics
+    /// Panics if the new capacity exceeds `isize::MAX` *bytes*.
+    pub fn push(&mut self, color: Color) {
+        self.data.to_mut().extend_from_slice(&color.to_format(self.color_format));
     }
 
-    /// Create a new owned CLUT with data cloned from this CLUT.
-    pub fn to_owned<'a>(&'a self) -> Self {
-        Self::new_owned(self.data.to_vec(), self.clut_type)
+    /// Inserts a color at position `index` within the CLUT, shifting all colors after it to the right.
+    /// 
+    /// If the color's format does not match the CLUT's, it will be converted to the CLUT's color format.
+    /// 
+    /// Clones the data if it is not already owned.
+    /// 
+    /// ### Panics
+    /// Panics if `index > color_count`.
+    pub fn insert(&mut self, index: usize, color: Color) {
+        let byte_index = index * self.color_format.size();
+        self.data.to_mut().splice(byte_index..byte_index, color.to_format(self.color_format).iter().copied());
+    }
+
+    /// Removes the last color from the CLUT and returns it, or `None` if it is empty.
+    /// 
+    /// Clones the data if it is not already owned.
+    pub fn pop(&mut self) -> Option<Color> {
+        let color = self.get_exact(self.color_count() - 1)?;
+        let data = self.data.to_mut();
+        data.truncate(data.len() - color.len());
+        Some(color)
+    }
+
+    /// Removes and returns the color at position index within the CLUT, shifting all colors after it to the left.
+    /// 
+    /// Clones the data if it is not already owned.
+    /// 
+    /// ### Panics
+    /// Panics if `index` is out of bounds.
+    pub fn remove(&mut self, index: usize) -> Option<Color> {
+        let color_size = self.color_format.size();
+        let byte_index = index * color_size;
+        let mut bytes = [0u8; 4]; // fits all color formats without allocating
+        for (src, dest) in self.data.to_mut()
+            .splice(byte_index..byte_index + color_size, [])
+            .zip(bytes.iter_mut())
+        {
+            *dest = src;
+        }
+
+        Color::from_pixel(&bytes, 0, self.color_format)
     }
 
     /// Perform swizzling on the CLUT to an owned CLUT. The conversion works both ways,
-    /// swizzling an unswizzled CLUT and unswizzling a swizzled CLUT.
+    /// swizzling a linear CLUT and unswizzling a swizzled CLUT.
     /// 
-    /// Returns `None` if the CLUT type has no color format.
-    pub fn swizzle<'a>(&'a self) -> Option<Self> {
+    /// If you want to force a specific swizzling setting, see
+    /// [`into_swizzled`](Self::into_swizzled) and [`into_linear`](Self::into_linear).
+    pub fn swizzle(&self) -> Clut<'static> {
         let mut buffer = vec![0u8; self.data.len()];
-        let color_len = self.clut_type.bytes_per_element()?;
-        for dest_index in 0..(buffer.len() / color_len) {
+        let color_size = self.color_format.size();
+        for dest_index in 0..(buffer.len() / color_size) {
             let src_index = Self::swizzle_index(dest_index);
-            let dest_offset = dest_index * color_len;
-            let src_offset = src_index * color_len;
-            for i in 0..color_len {
+            let dest_offset = dest_index * color_size;
+            let src_offset = src_index * color_size;
+            for i in 0..color_size {
                 buffer[dest_offset + i] = self.data[src_offset + i];
             }
         }
 
-        Some(Self::new_owned(buffer, self.clut_type ^ ClutType::CSM2))
+        Clut {
+            data: Cow::Owned(buffer),
+            color_format: self.color_format,
+            is_linear: self.is_linear
+        }
+    }
+
+    /// Convert this CLUT to a swizzled CLUT if it is linear. Otherwise, the CLUT is cloned.
+    pub fn to_swizzled(&self) -> Clut<'static> {
+        if self.is_linear { self.swizzle() } else { self.to_owned() }
+    }
+
+    /// Convert this CLUT to a linear CLUT if it is swizzled. Otherwise, the CLUT is cloned.
+    pub fn to_linear(&self) -> Clut<'static> {
+        if self.is_linear { self.to_owned() } else { self.swizzle() }
+    }
+
+    /// Convert this CLUT to a swizzled CLUT if it is linear. Otherwise, return it as an owned CLUT,
+    /// cloning the data if it is not already owned.
+    pub fn into_swizzled(self) -> Clut<'static> {
+        if self.is_linear { self.swizzle() } else { self.into_owned() }
+    }
+
+    /// Convert this CLUT to a linear CLUT if it is swizzled. Otherwise, return it as an owned CLUT,
+    /// cloning the data if it is not already owned.
+    pub fn into_linear(self) -> Clut<'static> {
+        if self.is_linear { self.into_owned() } else { self.swizzle() }
     }
 }
 
@@ -771,6 +877,26 @@ pub enum ColorFormat {
     Rgb32
 }
 
+impl ColorFormat {
+    /// Get the CLUT type corresponding to this color format (without CSM flag).
+    pub const fn to_clut_type(&self) -> ClutType {
+        match self {
+            Self::Rgb16 => ClutType::RGB16,
+            Self::Rgb24 => ClutType::RGB24,
+            Self::Rgb32 => ClutType::RGB32
+        }
+    }
+
+    /// Byte size for this color format.
+    pub const fn size(&self) -> usize {
+        match self {
+            Self::Rgb16 => 2,
+            Self::Rgb24 => 3,
+            Self::Rgb32 => 4,
+        }
+    }
+}
+
 impl TryFrom<ClutType> for ColorFormat {
     type Error = Error;
 
@@ -781,6 +907,12 @@ impl TryFrom<ClutType> for ColorFormat {
             ClutType::RGB32 => ColorFormat::Rgb32,
             _ => return Err(Error::type_conversion::<ClutType, ColorFormat>(value))
         })
+    }
+}
+
+impl Into<ClutType> for ColorFormat {
+    fn into(self) -> ClutType {
+        self.to_clut_type()
     }
 }
 
@@ -803,4 +935,31 @@ impl TryFrom<ImageType> for ColorFormat {
 pub struct MipmapInfo {
     pub gs_miptbp1: u64,
     pub gs_miptbp2: u64
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clut_mutation() {
+        let mut clut = Clut::new_owned(Vec::new(), ColorFormat::Rgb32, true);
+
+        clut.push(Color::Rgb32([12, 34, 56, 128]));
+        clut.push(Color::Rgb24([11, 22, 33]));
+        clut.push(Color::Rgb24([44, 55, 66]));
+        clut.push(Color::Rgb24([77, 88, 99]));
+
+        assert_eq!(clut.get(0), Some(Color::Rgb32([12, 34, 56, 128])));
+        assert_eq!(clut.get(1), Some(Color::Rgb32([11, 22, 33, 128])));
+        assert_eq!(clut.get(2), Some(Color::Rgb32([44, 55, 66, 128])));
+        assert_eq!(clut.pop(), Some(Color::Rgb32([77, 88, 99, 128])));
+        assert_eq!(clut.remove(1), Some(Color::Rgb32([11, 22, 33, 128])));
+        assert_eq!(clut.get(1), Some(Color::Rgb32([44, 55, 66, 128])));
+
+        clut.insert(1, Color::Rgb24([67, 67, 67]));
+        assert_eq!(clut.get(1), Some(Color::Rgb32([67, 67, 67, 128])));
+        assert_eq!(clut.get(2), Some(Color::Rgb32([44, 55, 66, 128])));
+    }
 }
