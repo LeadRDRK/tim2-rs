@@ -580,6 +580,27 @@ impl<'a> Clut<'a> {
     pub fn get_exact(&self, i: usize) -> Option<Color> {
         Color::from_pixel(&self.data, i, self.clut_type.try_into().ok()?)
     }
+
+    /// Number of colors in this CLUT.
+    /// 
+    /// Aside from empty data, this will also return 0 if the CLUT type is none or invalid.
+    pub fn color_count(&self) -> usize {
+        if let Some(bytes_per_element) = self.clut_type.bytes_per_element() {
+            self.data.len() / bytes_per_element
+        }
+        else {
+            0
+        }
+    }
+
+    /// Get an iterator of all the colors in this CLUT.
+    /// 
+    /// The order of the colors will always be linear, regardless if the CLUT is
+    /// swizzled or not.
+    pub fn colors(&self) -> impl Iterator<Item = Color> {
+        (0..self.color_count())
+            .flat_map(|index| self.get_exact(index))
+    }
 }
 
 impl Clut<'static> {
