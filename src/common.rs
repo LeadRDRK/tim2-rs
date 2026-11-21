@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::{Deref, DerefMut}};
 
 use bitflags::bitflags;
 
@@ -658,14 +658,6 @@ impl Color {
         }
     }
 
-    pub const fn as_bytes(&self) -> &[u8] {
-        match self {
-            Color::Rgb16(bytes) => bytes,
-            Color::Rgb24(bytes) => bytes,
-            Color::Rgb32(bytes) => bytes
-        }
-    }
-
     /// Convert this color to 8-bit RGBA.
     /// 
     /// **Note:** The resulting color keeps the alpha value as-is for Rgb32, and uses 128 (0x80)
@@ -720,6 +712,28 @@ impl Color {
             },
             ColorFormat::Rgb24 => Color::Rgb24([rgba[0], rgba[1], rgba[2]]),
             ColorFormat::Rgb32 => Color::Rgb32(rgba),
+        }
+    }
+}
+
+impl Deref for Color {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Color::Rgb16(bytes) => bytes,
+            Color::Rgb24(bytes) => bytes,
+            Color::Rgb32(bytes) => bytes
+        }
+    }
+}
+
+impl DerefMut for Color {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Color::Rgb16(bytes) => bytes,
+            Color::Rgb24(bytes) => bytes,
+            Color::Rgb32(bytes) => bytes
         }
     }
 }
