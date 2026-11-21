@@ -246,7 +246,7 @@ impl Picture {
     pub fn new(
         metadata: PictureMetadata,
         mipmaps: Vec<Vec<u8>>,
-        clut_data: Vec<u8>,
+        clut_data: impl Into<Vec<u8>>,
         clut_color_count: u16
     ) -> Result<Self, Error> {
         if mipmaps.len() > 7 {
@@ -263,6 +263,7 @@ impl Picture {
             }
         }
 
+        let clut_data = clut_data.into();
         let clut_len = if metadata.clut_type != ClutType::NONE {
             let clut_bytes_per_element = metadata.clut_type.bytes_per_element()
                 .ok_or_else(|| Error::InvalidData("unknown CLUT color type"))?;
@@ -752,6 +753,12 @@ impl<'a> Into<Clut<'a>> for &'a Clut<'_> {
 impl<'a> Into<Option<Clut<'a>>> for &'a Clut<'_> {
     fn into(self) -> Option<Clut<'a>> {
         Some(self.to_borrowed())
+    }
+}
+
+impl<'a> Into<Vec<u8>> for Clut<'a> {
+    fn into(self) -> Vec<u8> {
+        self.into_owned_data()
     }
 }
 
