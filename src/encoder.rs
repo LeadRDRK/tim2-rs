@@ -44,6 +44,21 @@ impl<W: Write> Encoder<W> {
         })
     }
 
+    /// Move the writer out of the decoder.
+    pub fn into_writer(self) -> W {
+        self.writer
+    }
+
+    /// Picture count from [`Info`].
+    pub fn picture_count(&self) -> u16 {
+        self.picture_count
+    }
+
+    /// Number of pictures written so far.
+    pub fn pictures_written(&self) -> u16 {
+        self.pictures_written
+    }
+
     /// Write the next picture.
     /// 
     /// Returns [`Error::EofExpected`] if the number of pictures written is equals to the
