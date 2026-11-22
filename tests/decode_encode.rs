@@ -6,7 +6,7 @@ fn decode_encode(data: &[u8]) -> (Info, Picture) {
     let mut decoder = Decoder::from_reader(Cursor::new(data)).unwrap();
     assert!(decoder.picture_count() == 1);
     let picture = decoder.next_picture().unwrap().unwrap();
-    let image_reader = picture.image_reader(0, None).unwrap().unwrap();
+    let image_reader = picture.image(0, None).unwrap().unwrap();
     image_reader.read_to_rgba().unwrap();
 
     let info = decoder.info();

@@ -351,7 +351,7 @@ impl Picture {
         }
     }
 
-    /// Get an image reader for this picture's image at the specified mipmap level,
+    /// Get an image decoder for the image at the specified mipmap level,
     /// with mipmap level 0 being the base image.
     /// 
     /// If the image type is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
@@ -359,36 +359,36 @@ impl Picture {
     /// 
     /// If the image uses direct colors, `clut` is ignored. As a default, using `None` will work for
     /// all valid pictures.
-    pub fn image_reader<'a, 'b: 'a>(
+    pub fn image<'a, 'b: 'a>(
         &'b self,
         mipmap: u8,
         clut: impl Into<Option<Clut<'a>>>
-    ) -> Option<Result<ImageReader<'a, 'b>, Error>> {
+    ) -> Option<Result<ImageDecoder<'a, 'b>, Error>> {
         self.mipmaps.get(mipmap as usize)
-            .map(|image_data| ImageReader::from_picture(self, clut, mipmap, image_data))
+            .map(|data| ImageDecoder::from_picture(self, clut, mipmap, data))
     }
 }
 
-/// Image data reader.
-pub struct ImageReader<'a, 'b> {
+/// Image data decoder.
+pub struct ImageDecoder<'a, 'b> {
     width: u16,
     height: u16,
-    pixel_reader: PixelReader<'a>,
-    image_data: &'b [u8],
+    pixel_decoder: PixelDecoder<'a>,
+    data: &'b [u8],
 }
 
-impl<'a, 'b> ImageReader<'a, 'b> {
-    /// Create a new image reader.
+impl<'a, 'b> ImageDecoder<'a, 'b> {
+    /// Create a new image decoder.
     pub const fn new(
         width: u16,
         height: u16,
-        pixel_reader: PixelReader<'a>,
-        image_data: &'b [u8]
+        pixel_decoder: PixelDecoder<'a>,
+        data: &'b [u8]
     ) -> Self {
-        Self { width, height, pixel_reader, image_data }
+        Self { width, height, pixel_decoder, data }
     }
 
-    /// Create a new image reader with parameters derived from the picture. The mipmap level will determine
+    /// Create a new image decoder with parameters derived from the picture. The mipmap level will determine
     /// the image's width and height.
     /// 
     /// If the image type is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
@@ -400,19 +400,19 @@ impl<'a, 'b> ImageReader<'a, 'b> {
         picture: &'a Picture,
         clut: impl Into<Option<Clut<'a>>>,
         mipmap_level: u8,
-        image_data: &'b [u8]
+        data: &'b [u8]
     ) -> Result<Self, Error> {
         let image_type = picture.metadata.image_type;
-        Ok(ImageReader {
+        Ok(ImageDecoder {
             width: picture.metadata.image_width >> mipmap_level,
             height: picture.metadata.image_height >> mipmap_level,
-            pixel_reader: match image_type {
+            pixel_decoder: match image_type {
                 ImageType::Rgb16 | ImageType::Rgb24 | ImageType::Rgb32 => {
-                    PixelReader::Direct(image_type.try_into().unwrap()) // always succeeds
+                    PixelDecoder::Direct(image_type.try_into().unwrap()) // always succeeds
                 },
 
                 ImageType::IdTex4 | ImageType::IdTex8 => {
-                    PixelReader::Indexed {
+                    PixelDecoder::Indexed {
                         four_bits: image_type == ImageType::IdTex4,
                         clut: clut.into()
                             .or_else(|| picture.clut(0))
@@ -420,7 +420,7 @@ impl<'a, 'b> ImageReader<'a, 'b> {
                     }
                 },
             },
-            image_data
+            data
         })
     }
 
@@ -432,13 +432,13 @@ impl<'a, 'b> ImageReader<'a, 'b> {
         self.height
     }
 
-    pub const fn pixel_reader(&self) -> &PixelReader<'a> {
-        &self.pixel_reader
+    pub const fn pixel_decoder(&self) -> &PixelDecoder<'a> {
+        &self.pixel_decoder
     }
 
     /// Raw image data.
-    pub const fn image_data(&self) -> &'b [u8] {
-        self.image_data
+    pub const fn data(&self) -> &'b [u8] {
+        self.data
     }
 
     /// Get the pixel at the specified position.
@@ -453,7 +453,7 @@ impl<'a, 'b> ImageReader<'a, 'b> {
 
     /// Get the pixel at the specified index.
     pub fn pixel(&self, index: usize) -> Option<Color> {
-        self.pixel_reader.pixel(self.image_data, index)
+        self.pixel_decoder.get(self.data, index)
     }
 
     /// Pixel count = width * height.
@@ -471,7 +471,7 @@ impl<'a, 'b> ImageReader<'a, 'b> {
             .ok_or_else(|| Error::InvalidImageParams)
     }
 
-    /// Read all of the pixels in the image, converted to RGBA format.
+    /// Read all of the pixels in the image, converted to bytes in RGBA format.
     /// 
     /// Returns [`Error::InvalidImageParams`] if any of the pixels couldn't be read.
     /// 
@@ -480,10 +480,10 @@ impl<'a, 'b> ImageReader<'a, 'b> {
     pub fn read_to_rgba(&self) -> Result<Vec<u8>, Error> {
         let buffer_len = self.pixel_count() * 4;
 
-        if let PixelReader::Direct(color_format) = self.pixel_reader
+        if let PixelDecoder::Direct(color_format) = self.pixel_decoder
             && color_format == ColorFormat::Rgb32
         {
-            self.image_data.get(..buffer_len)
+            self.data.get(..buffer_len)
                 .map(|s| s.to_vec())
                 .ok_or_else(|| Error::InvalidImageParams)
         }
@@ -498,9 +498,9 @@ impl<'a, 'b> ImageReader<'a, 'b> {
     }
 }
 
-/// Pixel data reader. Interprets the pixel as a [`Color`] in the specified format.
+/// Pixel data decoder. Interprets pixels as a [`Color`] in the specified format.
 #[derive(Debug, Clone)]
-pub enum PixelReader<'a> {
+pub enum PixelDecoder<'a> {
     Direct(ColorFormat),
     Indexed {
         four_bits: bool,
@@ -508,15 +508,15 @@ pub enum PixelReader<'a> {
     }
 }
 
-impl<'a> PixelReader<'a> {
+impl<'a> PixelDecoder<'a> {
     /// Get the pixel at the specified index.
-    pub fn pixel(&self, image_data: &[u8], index: usize) -> Option<Color> {
+    pub fn get(&self, image_data: &[u8], index: usize) -> Option<Color> {
         match self {
-            PixelReader::Direct(color_format) => {
+            PixelDecoder::Direct(color_format) => {
                 Color::from_pixel(image_data, index, *color_format)
             },
 
-            PixelReader::Indexed { four_bits, clut } => {
+            PixelDecoder::Indexed { four_bits, clut } => {
                 if *four_bits {
                     let b = image_data.get(index / 2)?;
                     let color_index = if index % 2 == 0 { b & 0xF } else { b >> 4 };

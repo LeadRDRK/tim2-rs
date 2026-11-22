@@ -70,7 +70,7 @@ fn run(args: Args) -> anyhow::Result<()> {
             let clut = args.clut
                 .map(|index| picture.clut(index).ok_or_else(|| anyhow!("CLUT index out of range")))
                 .transpose()?;
-            let image_reader = picture.image_reader(args.mipmap, clut).ok_or_else(|| anyhow!("No image data"))??;
+            let image_reader = picture.image(args.mipmap, clut).ok_or_else(|| anyhow!("No image data"))??;
             let rgba_u8 = image_reader.read_to_rgba()?;
 
             let mut xrgb: Vec<u32> = Vec::with_capacity(image_reader.pixel_count());
