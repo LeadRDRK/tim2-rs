@@ -413,7 +413,7 @@ impl<'a, 'b> ImageDecoder<'a, 'b> {
 
                 ImageType::IdTex4 | ImageType::IdTex8 => {
                     PixelDecoder::Indexed {
-                        four_bits: image_type == ImageType::IdTex4,
+                        codec: image_type.try_into().unwrap(),
                         clut: clut.into()
                             .or_else(|| picture.clut(0))
                             .ok_or_else(|| Error::NoClutForIndexedImage)?
@@ -503,7 +503,7 @@ impl<'a, 'b> ImageDecoder<'a, 'b> {
 pub enum PixelDecoder<'a> {
     Direct(ColorFormat),
     Indexed {
-        four_bits: bool,
+        codec: IndexCodec,
         clut: Clut<'a>
     }
 }
@@ -516,17 +516,73 @@ impl<'a> PixelDecoder<'a> {
                 Color::from_pixel(image_data, index, *color_format)
             },
 
-            PixelDecoder::Indexed { four_bits, clut } => {
-                if *four_bits {
-                    let b = image_data.get(index / 2)?;
-                    let color_index = if index % 2 == 0 { b & 0xF } else { b >> 4 };
-                    clut.get_exact(color_index as _)
-                }
-                else {
-                    let color_index = *image_data.get(index)?;
-                    clut.get(color_index as _)
+            PixelDecoder::Indexed { codec, clut } => {
+                let color_index = codec.get(image_data, index)?;
+                match codec {
+                    IndexCodec::IdTex4 => clut.get_exact(color_index as _),
+                    IndexCodec::IdTex8 => clut.get(color_index as _)
                 }
             }
+        }
+    }
+}
+
+/// Color index codec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IndexCodec {
+    IdTex4,
+    IdTex8
+}
+
+impl IndexCodec {
+    /// Get the color index at the specified index.
+    pub fn get(&self, image_data: &[u8], index: usize) -> Option<u8> {
+        match self {
+            Self::IdTex4 => image_data.get(index / 2)
+                .map(|b| if index % 2 == 0 { b & 0xF } else { b >> 4 }),
+
+            Self::IdTex8 => image_data.get(index).copied()
+        }
+    }
+
+    /// Encode indexes.
+    pub fn encode<I>(&self, indexes: impl IntoIterator<Item = u8, IntoIter = I>) -> IndexEncoder<I> {
+        IndexEncoder {
+            codec: *self,
+            indexes: indexes.into_iter()
+        }
+    }
+}
+
+impl TryFrom<ImageType> for IndexCodec {
+    type Error = Error;
+
+    fn try_from(value: ImageType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            ImageType::IdTex4 => Self::IdTex4,
+            ImageType::IdTex8 => Self::IdTex8,
+            _ => return Err(Error::type_conversion::<ImageType, IndexCodec>(value))
+        })
+    }
+}
+
+/// Color index encoding iterator.
+pub struct IndexEncoder<I> {
+    codec: IndexCodec,
+    indexes: I
+}
+
+impl<I: Iterator<Item = u8>> Iterator for IndexEncoder<I> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.codec {
+            IndexCodec::IdTex4 => {
+                let a = self.indexes.next()?;
+                let b = self.indexes.next().unwrap_or(0);
+                Some((a & 0xF) | (b & 0xF) << 4)
+            },
+            IndexCodec::IdTex8 => self.indexes.next()
         }
     }
 }
