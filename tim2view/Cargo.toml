@@ -1,13 +1,13 @@
 [package]
 name = "tim2view"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Simple TIM2 image viewer"
 license = "MIT"
 repository = "https://github.com/LeadRDRK/tim2-rs"
 
 [dependencies]
-tim2-rs = { version = "0.2", path = ".." }
+tim2-rs = { version = "0.3", path = ".." }
 minifb = "0.29"
 anyhow = "1.0"
 rfd = "0.18"
