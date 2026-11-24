@@ -367,6 +367,33 @@ impl Picture {
         self.mipmaps.get(mipmap as usize)
             .map(|data| ImageDecoder::from_picture(self, clut, mipmap, data))
     }
+
+    /// Get an iterator of image decoders for all mipmap levels.
+    /// 
+    /// If the image type is indexed and `clut` is `None`, the first CLUT in the picture will be used if it
+    /// has one. Otherwise, [`Error::NoClutForIndexedImage`] will be returned.
+    /// 
+    /// If the image uses direct colors, `clut` is ignored. As a default, using `None` will work for
+    /// all valid pictures.
+    pub fn images<'a, 'b: 'a>(
+        &'b self,
+        clut: impl Into<Option<Clut<'a>>>
+    ) -> Result<impl Iterator<Item = ImageDecoder<'a, 'b>>, Error> {
+        let clut = self.metadata.image_type.is_indexed()
+            .then(|| clut.into()
+                .or_else(|| self.clut(0))
+                .ok_or_else(|| Error::NoClutForIndexedImage)
+            )
+            .transpose()?;
+
+        Ok(self.mipmaps.iter()
+            .enumerate()
+            .map(move |(i, data)|
+                ImageDecoder::from_picture(self, clut.clone(), i as u8, data)
+                    .unwrap() // OK: we've ensured that there's a CLUT
+            )
+        )
+    }
 }
 
 /// Image data decoder.
