@@ -333,7 +333,12 @@ impl Picture {
     }
 
     pub const fn clut_count(&self) -> usize {
-        self.clut_data.len() / self.clut_len
+        if self.clut_len != 0 {
+            self.clut_data.len() / self.clut_len
+        }
+        else {
+            0
+        }
     }
 
     /// Byte length of a single CLUT.
