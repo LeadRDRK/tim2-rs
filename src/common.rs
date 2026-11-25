@@ -791,10 +791,15 @@ impl<'a> Clut<'a> {
     /// If you want to force a specific swizzling setting, see
     /// [`into_swizzled`](Self::into_swizzled) and [`into_linear`](Self::into_linear).
     pub fn swizzle(&self) -> Clut<'static> {
-        let mut buffer = vec![0u8; self.data.len()];
         let color_size = self.color_format.size();
-        for dest_index in 0..(buffer.len() / color_size) {
+        let color_count = self.data.len() / color_size;
+        let mut buffer = vec![0u8; color_count * color_size];
+        for dest_index in 0..color_count {
             let src_index = Self::swizzle_index(dest_index);
+            if src_index >= color_count {
+                continue;
+            }
+
             let dest_offset = dest_index * color_size;
             let src_offset = src_index * color_size;
             for i in 0..color_size {
@@ -805,7 +810,7 @@ impl<'a> Clut<'a> {
         Clut {
             data: Cow::Owned(buffer),
             color_format: self.color_format,
-            is_linear: self.is_linear
+            is_linear: !self.is_linear
         }
     }
 
